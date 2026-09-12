@@ -63,6 +63,7 @@ patternchecker.edit.upload=编码并上传
 patternchecker.edit.cancel=取消
 patternchecker.edit.hint=左键持物设置物品，空手清除，滚轮±1（Shift±10），右键同物品加一手；底部 ÷2 ÷10 −1 +1 ×2 ×10 对所有槽位立即生效；可从 NEI 拖入或按 R 后点合成表填入
 patternchecker.edit.countTip=数量：%s
+patternchecker.edit.neiKeys=NEI：%s 查配方 · %s 查用途 · %s 收藏
 patternchecker.edit.overflow=该样板槽位数超出编辑器支持（%s）
 patternchecker.edit.nonItemEntry=该样板包含 %s 个非物品条目（流体/气体等），编辑器无法安全处理，已取消编辑
 patternchecker.action.extracted=已取出：%s

@@ -18,6 +18,14 @@ import com.patternchecker.gui.GuiHandler;
 @SideOnly(Side.CLIENT)
 public class ClientProxy extends CommonProxy {
 
+    /**
+     * One-line NEI shortcut hint (recipe/usage/bookmark, with the keys actually
+     * bound in the NEI config) shown in the editor's ghost-slot tooltip. Set by
+     * the NEI relay after the reflective load; null while NEI is absent, so GUI
+     * code never has to touch NEI classes.
+     */
+    public static volatile java.util.function.Supplier<String> neiKeyHintProvider;
+
     @Override
     public void registerRenderers() {
         // Registers itself to the Forge event bus.

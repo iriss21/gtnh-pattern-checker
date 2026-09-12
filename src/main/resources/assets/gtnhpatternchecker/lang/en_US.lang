@@ -63,6 +63,7 @@ patternchecker.edit.upload=Encode and Upload
 patternchecker.edit.cancel=Cancel
 patternchecker.edit.hint=Left-click with item to set, empty-hand to clear, wheel = +-1 (Shift +-10), right-click same item adds one stack; the divider buttons act on every slot at once; drag items in from NEI or press R and click the recipe to fill
 patternchecker.edit.countTip=Amount: %s
+patternchecker.edit.neiKeys=NEI: %s recipe - %s usage - %s bookmark
 patternchecker.edit.overflow=Pattern slot count exceeds editor limits (%s)
 patternchecker.edit.nonItemEntry=This pattern holds %s non-item entries (fluids, gases, ...) that the editor cannot represent safely, edit cancelled
 patternchecker.action.extracted=Extracted: %s

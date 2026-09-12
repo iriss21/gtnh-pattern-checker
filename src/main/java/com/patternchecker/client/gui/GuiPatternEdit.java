@@ -17,6 +17,7 @@ import org.lwjgl.opengl.GL11;
 
 import com.patternchecker.check.DimensionNames;
 import com.patternchecker.check.ItemName;
+import com.patternchecker.client.ClientProxy;
 import com.patternchecker.network.PacketEditCommit;
 import com.patternchecker.network.PacketEditData;
 import com.patternchecker.network.PatternCheckerNetwork;
@@ -388,6 +389,21 @@ public class GuiPatternEdit extends GuiContainer {
     }
 
     /**
+     * The ghost slot under the mouse as a real stack, or null. Exposed through the
+     * NEI object handler so NEI's whole shortcut chain (R recipe, U usage,
+     * A bookmark, copy name, ...) works on ghost slots exactly like on vanilla
+     * item slots; the key bindings themselves come from the NEI config.
+     */
+    public ItemStack getHoverStack(int mouseX, int mouseY) {
+        int hit = hitSlot(mouseX, mouseY);
+        if (hit < 0) {
+            return null;
+        }
+        EditSlot slot = slotAt(hit);
+        return slot.type == null || slot.type.getItem() == null ? null : slot.type.copy();
+    }
+
+    /**
      * Fills the editor from a recipe (NEI's recipe overlay transfer). The grid is
      * row-major 3x3; anything the recipe does not cover is cleared, so the result is
      * exactly the recipe being shown. A slot that already holds the same item keeps
@@ -480,9 +496,13 @@ public class GuiPatternEdit extends GuiContainer {
         if (slot.type == null || slot.type.getItem() == null) {
             return;
         }
-        List<String> tip = new ArrayList<>(2);
+        List<String> tip = new ArrayList<>(3);
         tip.add(slot.type.getDisplayName());
         tip.add(I18n.format("patternchecker.edit.countTip", slot.count));
+        String neiKeys = ClientProxy.neiKeyHintProvider == null ? null : ClientProxy.neiKeyHintProvider.get();
+        if (neiKeys != null && !neiKeys.isEmpty()) {
+            tip.add(neiKeys);
+        }
         this.drawHoveringText(tip, mouseX, mouseY, this.fontRendererObj);
     }
 

@@ -5,12 +5,18 @@ import java.util.List;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.item.ItemStack;
 
+import org.lwjgl.input.Keyboard;
+
 import codechicken.nei.PositionedStack;
 import codechicken.nei.api.API;
 import codechicken.nei.api.INEIGuiAdapter;
 import codechicken.nei.api.IOverlayHandler;
+import codechicken.nei.NEIClientConfig;
+import codechicken.nei.guihook.GuiContainerManager;
+import codechicken.nei.guihook.IContainerObjectHandler;
 import codechicken.nei.recipe.IRecipeHandler;
 
+import com.patternchecker.client.ClientProxy;
 import com.patternchecker.client.gui.GuiPatternCheckPanel;
 import com.patternchecker.client.gui.GuiPatternEdit;
 
@@ -18,7 +24,7 @@ import com.patternchecker.client.gui.GuiPatternEdit;
  * NEI relay for the two Pattern Checker screens.
  *
  * <p>GTNH 2.8.4 is a Minecraft 1.7.10 pack, so the recipe viewer is
- * NotEnoughItems (NEI), not JEI. This class provides the three hooks that make the
+ * NotEnoughItems (NEI), not JEI. This class provides the hooks that make the
  * editor feel like a native crafting GUI:
  *
  * <ul>
@@ -27,7 +33,10 @@ import com.patternchecker.client.gui.GuiPatternEdit;
  * <li>{@code registerGuiOverlay} — pressing R/U draws the recipe aligned with the 3x3
  * grid instead of in the GUI's top-left corner;</li>
  * <li>{@code registerGuiOverlayHandler} — the overlay's transfer button fills the grid
- * with the recipe being shown.</li>
+ * with the recipe being shown;</li>
+ * <li>{@code getStackUnderMouse} (IContainerObjectHandler) — the hovered ghost slot
+ * reports its stack, which lets NEI's whole shortcut chain run on the editor: R
+ * recipe, U usage, A bookmark, copy name, ... (bindings read from the NEI config).</li>
  * </ul>
  *
  * <p>It references NEI types, so it is only loaded through {@code Class.forName} from
@@ -35,7 +44,7 @@ import com.patternchecker.client.gui.GuiPatternEdit;
  * {@code Loader.isModLoaded("NotEnoughItems")} check — the same approach AE2 uses for
  * its own NEI module. Without NEI the rest of the mod is unaffected.
  */
-public final class PatternCheckNei extends INEIGuiAdapter {
+public final class PatternCheckNei extends INEIGuiAdapter implements IContainerObjectHandler {
 
     /**
      * NEI positions a recipe handler's items relative to this origin: the vanilla
@@ -57,7 +66,12 @@ public final class PatternCheckNei extends INEIGuiAdapter {
         if (instance == null) {
             instance = new PatternCheckNei();
             API.registerNEIGuiHandler(instance);
+            // object handlers are asked for the stack under the mouse before NEI
+            // falls back to real container slots; that is what lights up the
+            // shortcut chain (R/U/A/...) on the editor's ghost slots.
+            GuiContainerManager.addObjectHandler(instance);
             registerOverlay();
+            ClientProxy.neiKeyHintProvider = PatternCheckNei::keyHintLine;
         }
     }
 
@@ -66,6 +80,23 @@ public final class PatternCheckNei extends INEIGuiAdapter {
                 GuiPatternEdit.GRID_ORIGIN_X - NEI_CRAFTING_ORIGIN_X,
                 GuiPatternEdit.GRID_ORIGIN_Y - NEI_CRAFTING_ORIGIN_Y);
         API.registerGuiOverlayHandler(GuiPatternEdit.class, new OverlayTransfer(), CRAFTING_OVERLAY);
+    }
+
+    /** Tooltip line naming the actually bound NEI keys, or "" when they resolve to nothing. */
+    private static String keyHintLine() {
+        String recipe = keyName("gui.recipe");
+        String usage = keyName("gui.usage");
+        String bookmark = keyName("gui.bookmark");
+        if (recipe.isEmpty() || usage.isEmpty() || bookmark.isEmpty()) {
+            return "";
+        }
+        return net.minecraft.client.resources.I18n.format("patternchecker.edit.neiKeys",
+                recipe, usage, bookmark);
+    }
+
+    private static String keyName(String binding) {
+        int code = NEIClientConfig.getKeyBinding(binding);
+        return code >= 0 ? Keyboard.getKeyName(code) : "";
     }
 
     @Override
@@ -85,6 +116,43 @@ public final class PatternCheckNei extends INEIGuiAdapter {
             return ((GuiPatternCheckPanel) gui).isRegionOverGui(x, y, w, h);
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------
+    // IContainerObjectHandler: the bridge that lets NEI's shortcut chain
+    // (lastKeyTyped -> getStackMouseOver -> ShortcutInputHandler.handleKeyEvent)
+    // see the editor's ghost slots. Neutral implementations everywhere else.
+    // ------------------------------------------------------------------
+
+    @Override
+    public ItemStack getStackUnderMouse(GuiContainer gui, int mouseX, int mouseY) {
+        return gui instanceof GuiPatternEdit ? ((GuiPatternEdit) gui).getHoverStack(mouseX, mouseY) : null;
+    }
+
+    @Override
+    public boolean objectUnderMouse(GuiContainer gui, int mouseX, int mouseY) {
+        // False: the vanilla slot behaviour must keep working untouched; the stack
+        // we hand out is only for NEI's key/tooltip chain.
+        return false;
+    }
+
+    @Override
+    public boolean shouldShowTooltip(GuiContainer gui) {
+        // False for the editor: the editor paints its own ghost-slot tooltip (name
+        // + amount + key hints); a second NEI tooltip would render on top of it.
+        return !(gui instanceof GuiPatternEdit);
+    }
+
+    @Override
+    public void guiTick(GuiContainer gui) {
+    }
+
+    @Override
+    public void refresh(GuiContainer gui) {
+    }
+
+    @Override
+    public void load(GuiContainer gui) {
     }
 
     /** Copies the recipe NEI is currently showing into the editor's ghost slots. */

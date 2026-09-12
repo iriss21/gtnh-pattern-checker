@@ -70,14 +70,21 @@ public final class PatternCheckService {
 
     /**
      * Upper bound on the rows pushed to the panel (and kept for row-addressed
-     * actions). Rows are sent in pages of {@link #ROWS_PER_PAGE} to respect the
-     * 1.7.10 32 KiB packet payload limit; the cap itself only bounds the panel
-     * list (and protocol traffic) for pathological bases.
+     * actions). Transport is paged by serialized size, so the cap only bounds
+     * protocol traffic and client list size for pathological bases; a couple of
+     * thousand patterns is the realistic ceiling for a GTNH mega-base.
      */
-    private static final int MAX_PANEL_ROWS = 600;
+    private static final int MAX_PANEL_ROWS = 2000;
 
-    /** Rows per panel-data packet; 120 rows stay well under the 32 KiB payload limit. */
+    /** Soft per-page row limit; the hard limit is the serialized byte budget below. */
     private static final int ROWS_PER_PAGE = 120;
+
+    /**
+     * Byte budget for a page's rows. One 1.7.10 payload must stay under 32 KiB
+     * in total; the fixed packet header plus the FML/Vanilla framing overhead
+     * take the rest of the margin.
+     */
+    private static final int PAGE_BYTE_BUDGET = 28 * 1024;
 
     /** Issue key of the "nothing wrong" rows listed for interface patterns. */
     public static final String ISSUE_OK = "patternchecker.issue.ok";
@@ -263,9 +270,11 @@ public final class PatternCheckService {
         }
 
         // Rows go out in pages: one payload must stay under the 1.7.10 32 KiB
-        // packet limit, and a few hundred rows of names/coordinates/issue text do
-        // not. The client accumulates the pages in ClientPanelState.
-        int totalPages = Math.max(1, (stored.size() + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
+        // packet limit. Pages are packed by serialized size (not just row count),
+        // so even rows with huge issue text cannot overflow a packet. The client
+        // accumulates the pages in ClientPanelState.
+        List<List<PacketPanelData.Row>> pages = packPages(stored);
+        int totalPages = Math.max(1, pages.size());
         for (int p = 0; p < totalPages; p++) {
             PacketPanelData packet = new PacketPanelData();
             packet.status = status;
@@ -279,13 +288,34 @@ public final class PatternCheckService {
             packet.thirdPartyPatterns = s.thirdPartyPatterns;
             packet.ignoredPatterns = ignoredRows + ghostRows;
             packet.healthyPatterns = healthyRows;
-            int from = p * ROWS_PER_PAGE;
-            int to = Math.min(stored.size(), from + ROWS_PER_PAGE);
-            for (PanelRow row : stored.subList(from, to)) {
-                packet.rows.add(toPacketRow(row));
-            }
+            packet.rows.addAll(pages.get(p));
             PatternCheckerNetwork.sendPanelData(player, packet);
         }
+    }
+
+    /**
+     * Packs panel rows into pages under the byte budget, so every payload fits
+     * one packet no matter how large the individual rows are.
+     */
+    public static List<List<PacketPanelData.Row>> packPages(List<PanelRow> rows) {
+        List<List<PacketPanelData.Row>> pages = new ArrayList<>();
+        List<PacketPanelData.Row> current = new ArrayList<>();
+        int bytes = 0;
+        for (PanelRow row : rows) {
+            PacketPanelData.Row r = toPacketRow(row);
+            int size = PacketPanelData.rowSize(r);
+            if (!current.isEmpty() && (current.size() >= ROWS_PER_PAGE || bytes + size > PAGE_BYTE_BUDGET)) {
+                pages.add(current);
+                current = new ArrayList<>();
+                bytes = 0;
+            }
+            current.add(r);
+            bytes += size;
+        }
+        if (!current.isEmpty() || pages.isEmpty()) {
+            pages.add(current);
+        }
+        return pages;
     }
 
     /** 0 = error, 1 = warning, 2 = ignored, 3 = healthy. */

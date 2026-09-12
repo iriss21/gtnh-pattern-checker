@@ -1,6 +1,9 @@
 package com.patternchecker.network;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
+import com.google.common.base.Charsets;
 
 import cpw.mods.fml.common.network.ByteBufUtils;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -110,30 +113,7 @@ public class PacketPanelData implements IMessage {
         this.healthyPatterns = buf.readInt();
         int count = buf.readInt();
         for (int i = 0; i < count; i++) {
-            Row r = new Row();
-            r.error = buf.readBoolean();
-            r.name = ByteBufUtils.readUTF8String(buf);
-            r.kind = ByteBufUtils.readUTF8String(buf);
-            r.hasLoc = buf.readBoolean();
-            if (r.hasLoc) {
-                r.locKey = ByteBufUtils.readUTF8String(buf);
-                r.locArg = ByteBufUtils.readUTF8String(buf);
-            }
-            r.issueKey = ByteBufUtils.readUTF8String(buf);
-            int argCount = buf.readInt();
-            r.args = new String[argCount];
-            for (int a = 0; a < argCount; a++) {
-                r.args[a] = ByteBufUtils.readUTF8String(buf);
-            }
-            r.canHighlight = buf.readBoolean();
-            r.canEdit = buf.readBoolean();
-            r.canExtract = buf.readBoolean();
-            r.canIgnore = buf.readBoolean();
-            r.ignored = buf.readBoolean();
-            r.healthy = buf.readBoolean();
-            r.dim = buf.readInt();
-            r.dimName = ByteBufUtils.readUTF8String(buf);
-            this.rows.add(r);
+            this.rows.add(readRow(buf));
         }
     }
 
@@ -152,27 +132,89 @@ public class PacketPanelData implements IMessage {
         buf.writeInt(this.healthyPatterns);
         buf.writeInt(this.rows.size());
         for (Row r : this.rows) {
-            buf.writeBoolean(r.error);
-            ByteBufUtils.writeUTF8String(buf, r.name);
-            ByteBufUtils.writeUTF8String(buf, r.kind);
-            buf.writeBoolean(r.hasLoc);
-            if (r.hasLoc) {
-                ByteBufUtils.writeUTF8String(buf, r.locKey);
-                ByteBufUtils.writeUTF8String(buf, r.locArg);
-            }
-            ByteBufUtils.writeUTF8String(buf, r.issueKey);
-            buf.writeInt(r.args.length);
-            for (String a : r.args) {
-                ByteBufUtils.writeUTF8String(buf, a);
-            }
-            buf.writeBoolean(r.canHighlight);
-            buf.writeBoolean(r.canEdit);
-            buf.writeBoolean(r.canExtract);
-            buf.writeBoolean(r.canIgnore);
-            buf.writeBoolean(r.ignored);
-            buf.writeBoolean(r.healthy);
-            buf.writeInt(r.dim);
-            ByteBufUtils.writeUTF8String(buf, r.dimName);
+            writeRow(buf, r);
+        }
+    }
+
+    private static Row readRow(ByteBuf buf) {
+        Row r = new Row();
+        r.error = buf.readBoolean();
+        r.name = ByteBufUtils.readUTF8String(buf);
+        r.kind = ByteBufUtils.readUTF8String(buf);
+        r.hasLoc = buf.readBoolean();
+        if (r.hasLoc) {
+            r.locKey = ByteBufUtils.readUTF8String(buf);
+            r.locArg = ByteBufUtils.readUTF8String(buf);
+        }
+        r.issueKey = ByteBufUtils.readUTF8String(buf);
+        int argCount = buf.readInt();
+        r.args = new String[argCount];
+        for (int a = 0; a < argCount; a++) {
+            r.args[a] = ByteBufUtils.readUTF8String(buf);
+        }
+        r.canHighlight = buf.readBoolean();
+        r.canEdit = buf.readBoolean();
+        r.canExtract = buf.readBoolean();
+        r.canIgnore = buf.readBoolean();
+        r.ignored = buf.readBoolean();
+        r.healthy = buf.readBoolean();
+        r.dim = buf.readInt();
+        r.dimName = ByteBufUtils.readUTF8String(buf);
+        return r;
+    }
+
+    private static void writeRow(ByteBuf buf, Row r) {
+        buf.writeBoolean(r.error);
+        writeUtfSafe(buf, r.name);
+        writeUtfSafe(buf, r.kind);
+        buf.writeBoolean(r.hasLoc);
+        if (r.hasLoc) {
+            writeUtfSafe(buf, r.locKey);
+            writeUtfSafe(buf, r.locArg);
+        }
+        writeUtfSafe(buf, r.issueKey);
+        buf.writeInt(r.args.length);
+        for (String a : r.args) {
+            writeUtfSafe(buf, a);
+        }
+        buf.writeBoolean(r.canHighlight);
+        buf.writeBoolean(r.canEdit);
+        buf.writeBoolean(r.canExtract);
+        buf.writeBoolean(r.canIgnore);
+        buf.writeBoolean(r.ignored);
+        buf.writeBoolean(r.healthy);
+        buf.writeInt(r.dim);
+        writeUtfSafe(buf, r.dimName);
+    }
+
+    /**
+     * FML's string encoder caps one string at 16383 UTF-8 bytes (2-byte varint
+     * length). A hostile issue text (hundreds of missing item names joined into
+     * one argument) would trip that and kill the whole scan push, so overlong
+     * strings are halved until they fit.
+     */
+    private static void writeUtfSafe(ByteBuf buf, String s) {
+        if (s == null) {
+            s = "";
+        }
+        while (s.getBytes(Charsets.UTF_8).length > 16000 && s.length() > 0) {
+            s = s.substring(0, s.length() / 2);
+        }
+        ByteBufUtils.writeUTF8String(buf, s);
+    }
+
+    /**
+     * Serialized byte size of one row. The page packer uses it to keep each
+     * payload under the 1.7.10 packet limit even when single rows are huge
+     * (e.g. a "missing inputs" issue listing many item names).
+     */
+    public static int rowSize(Row r) {
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            writeRow(buf, r);
+            return buf.readableBytes();
+        } finally {
+            buf.release();
         }
     }
 

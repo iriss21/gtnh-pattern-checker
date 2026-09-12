@@ -229,28 +229,14 @@ public final class PatternCheckService {
 
         int cap = Math.min(ordered.size(), MAX_PANEL_ROWS);
         List<PanelRow> stored = new ArrayList<>(ordered.subList(0, cap));
-
         // Ghost ignores: fingerprints still on the ignore list for which this scan
-        // produced no row - the pattern was removed, re-encoded (its content
-        // fingerprint changed), or lives outside the scanned network. Without a
-        // row they would be invisible and impossible to un-ignore from the panel.
-        // Appended past the 150-row cap; "scan all" resolves them back into real
-        // rows when the patterns are reachable.
-        Set<String> seenKeys = new HashSet<>();
-        for (PanelRow row : stored) {
-            if (row.data.key != null) {
-                seenKeys.add(row.data.key);
-            }
-        }
-        int ghostRows = 0;
-        for (String key : s.ignored) {
-            if (seenKeys.contains(key)) {
-                continue;
-            }
-            stored.add(new PanelRow(new IssueData(false, "", "", null, "", ISSUE_GHOST, new String[0],
-                    null, 0, null, key, true), null));
-            ghostRows++;
-        }
+        // produced no row. Typical case: the pattern was extracted (or moved out)
+        // while ignored, or re-encoded - its content fingerprint changed - or it
+        // lives outside the scanned network. Without a placeholder row it would be
+        // invisible and impossible to un-ignore from the panel. Appended past the
+        // 150-row cap; when the pattern is reachable again ("scan all") it resolves
+        // back into a real row.
+        int ghostRows = appendGhostRows(stored, s.ignored);
 
         PanelStore.put(player, stored, all);
         PacketPanelData packet = new PacketPanelData();
@@ -291,6 +277,33 @@ public final class PatternCheckService {
             return 3;
         }
         return row.data.error ? 0 : 1;
+    }
+
+    /**
+     * Appends placeholder rows for ignored fingerprints that the rows of this
+     * scan do not cover - a pattern that was extracted, moved, re-encoded or
+     * scanned in no network would otherwise vanish from "show ignored" and be
+     * impossible to un-ignore from the panel.
+     *
+     * @return how many placeholder rows were appended
+     */
+    public static int appendGhostRows(List<PanelRow> rows, Set<String> ignoredKeys) {
+        Set<String> seenKeys = new HashSet<>();
+        for (PanelRow row : rows) {
+            if (row.data.key != null) {
+                seenKeys.add(row.data.key);
+            }
+        }
+        int ghosts = 0;
+        for (String key : ignoredKeys) {
+            if (seenKeys.contains(key)) {
+                continue;
+            }
+            rows.add(new PanelRow(new IssueData(false, "", "", null, "", ISSUE_GHOST, new String[0],
+                    null, 0, null, key, true), null));
+            ghosts++;
+        }
+        return ghosts;
     }
 
     private static PacketPanelData.Row toPacketRow(PanelRow row) {

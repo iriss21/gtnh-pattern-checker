@@ -74,6 +74,9 @@ public final class PatternCheckService {
     /** Issue key of the "nothing wrong" rows listed for interface patterns. */
     public static final String ISSUE_OK = "patternchecker.issue.ok";
 
+    /** Issue key of placeholder rows for ignored fingerprints outside the scan. */
+    public static final String ISSUE_GHOST = "patternchecker.issue.ghost";
+
     private PatternCheckService() {
     }
 
@@ -226,6 +229,29 @@ public final class PatternCheckService {
 
         int cap = Math.min(ordered.size(), MAX_PANEL_ROWS);
         List<PanelRow> stored = new ArrayList<>(ordered.subList(0, cap));
+
+        // Ghost ignores: fingerprints still on the ignore list for which this scan
+        // produced no row - the pattern was removed, re-encoded (its content
+        // fingerprint changed), or lives outside the scanned network. Without a
+        // row they would be invisible and impossible to un-ignore from the panel.
+        // Appended past the 150-row cap; "scan all" resolves them back into real
+        // rows when the patterns are reachable.
+        Set<String> seenKeys = new HashSet<>();
+        for (PanelRow row : stored) {
+            if (row.data.key != null) {
+                seenKeys.add(row.data.key);
+            }
+        }
+        int ghostRows = 0;
+        for (String key : s.ignored) {
+            if (seenKeys.contains(key)) {
+                continue;
+            }
+            stored.add(new PanelRow(new IssueData(false, "", "", null, "", ISSUE_GHOST, new String[0],
+                    null, 0, null, key, true), null));
+            ghostRows++;
+        }
+
         PanelStore.put(player, stored, all);
         PacketPanelData packet = new PacketPanelData();
         packet.status = status;
@@ -248,7 +274,7 @@ public final class PatternCheckService {
                 healthyRows++;
             }
         }
-        packet.ignoredPatterns = ignoredRows;
+        packet.ignoredPatterns = ignoredRows + ghostRows;
         packet.healthyPatterns = healthyRows;
         for (PanelRow row : stored) {
             packet.rows.add(toPacketRow(row));

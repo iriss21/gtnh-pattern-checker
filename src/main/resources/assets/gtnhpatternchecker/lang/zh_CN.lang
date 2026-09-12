@@ -91,3 +91,5 @@ patternchecker.dim.1=末地
 patternchecker.pattern.crafting=（合成样板）
 patternchecker.pattern.processing=（处理样板）
 patternchecker.issue.ok=无问题
+patternchecker.issue.ghost=已忽略的样板不在本次扫描结果中（可能已被移除、重新编码或不在扫描的网络里）
+patternchecker.gui.ghostName=未知样板

@@ -54,6 +54,10 @@ public class GuiPatternCheckPanel extends GuiContainer {
     private static final int LIST_BOTTOM_PAD = 50;
     private static final int BTN_ROW_1 = 44;
     private static final int BTN_ROW_2 = 22;
+    /** Scrollbar: 5px wide, 3px off the right border, spanning the row list. */
+    private static final int SCROLLBAR_WIDTH = 5;
+    private static final int SCROLLBAR_PAD = 3;
+    private static final int SCROLLBAR_MIN_THUMB = 20;
 
     private int scroll;
     /** Index into the full row list (not into the filtered view). */
@@ -62,6 +66,10 @@ public class GuiPatternCheckPanel extends GuiContainer {
     private boolean showIgnored;
     /** Healthy ("no issue") rows are hidden by default and can be revealed. */
     private boolean showHealthy;
+    /** True while the scrollbar thumb is held down with the mouse. */
+    private boolean draggingScrollbar;
+    /** Vertical offset from the thumb top to the mouse while dragging. */
+    private int scrollbarGrabOffset;
 
     /** Cached filtered view: full-list indices, rebuilt when data or toggles change. */
     private int[] view = new int[0];
@@ -205,6 +213,8 @@ public class GuiPatternCheckPanel extends GuiContainer {
     protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
         int left = this.guiLeft;
         int top = this.guiTop;
+        // fresh data can shrink the list below the remembered scroll position
+        this.scroll = Math.min(this.scroll, maxScroll());
         // panel background
         drawRect(left, top, left + this.xSize, top + this.ySize, 0xF0101014);
         drawRect(left, top, left + this.xSize, top + 1, 0xFF3A3A4A);
@@ -225,8 +235,19 @@ public class GuiPatternCheckPanel extends GuiContainer {
             if (rows[vi] == this.selected) {
                 // Span the three text lines with 2px padding top and bottom; the old
                 // ROW_HEIGHT-derived box stopped 3px short of the issue line's glyphs.
-                drawRect(left + 4, y - 2, left + this.xSize - 4, y + ROW_TEXT_HEIGHT + 2, 0x8032A852);
+                drawRect(left + 4, y - 2, left + this.xSize - 10, y + ROW_TEXT_HEIGHT + 2, 0x8032A852);
             }
+        }
+
+        // scrollbar (only when the list overflows the visible area)
+        int trackHeight = visible * ROW_HEIGHT;
+        int thumbHeight = thumbHeight(trackHeight);
+        if (thumbHeight > 0) {
+            int sx = left + scrollbarLeft();
+            drawRect(sx, top + LIST_TOP, sx + SCROLLBAR_WIDTH, top + LIST_TOP + trackHeight, 0xFF14141C);
+            int ty = top + thumbTop(trackHeight, thumbHeight);
+            drawRect(sx, ty, sx + SCROLLBAR_WIDTH, ty + thumbHeight,
+                    this.draggingScrollbar ? 0xFF8080A0 : 0xFF4A4A5E);
         }
     }
 
@@ -281,6 +302,10 @@ public class GuiPatternCheckPanel extends GuiContainer {
             int y = rowTop + i * ROW_HEIGHT;
 
             String head = row.displayName();
+            if (head.isEmpty()) {
+                // ghost ignore row: the pattern itself produced no data this scan
+                head = I18n.format("patternchecker.gui.ghostName");
+            }
             if (row.kind != null && !row.kind.isEmpty()) {
                 head = head + I18n.format(row.kind);
             }
@@ -289,7 +314,7 @@ public class GuiPatternCheckPanel extends GuiContainer {
             }
             int headColor = row.ignored ? 0x8A8A9A : (row.error ? 0xFF5555 : 0xFFFFFF);
             this.fontRendererObj.drawStringWithShadow(
-                    this.fontRendererObj.trimStringToWidth(head, width - 12), 6, y, headColor);
+                    this.fontRendererObj.trimStringToWidth(head, width - 20), 6, y, headColor);
 
             // Dimension + coordinates on their own left aligned line, so neither the
             // pattern name nor the location can push the other out of the row.
@@ -298,13 +323,13 @@ public class GuiPatternCheckPanel extends GuiContainer {
                         ? row.displayDim() + " · " + I18n.format(row.locKey)
                         : row.displayDim() + " @ " + row.locArg;
                 this.fontRendererObj.drawStringWithShadow(
-                        this.fontRendererObj.trimStringToWidth(loc, width - 12), 6, y + LINE_LOCATION, 0x7C7C8C);
+                        this.fontRendererObj.trimStringToWidth(loc, width - 20), 6, y + LINE_LOCATION, 0x7C7C8C);
             }
 
             String text = I18n.format(row.issueKey, (Object[]) row.displayArgs());
             int issueColor = row.ignored ? 0x707070 : (row.error ? 0xFF7070 : (row.healthy ? 0x60C060 : 0xE8C840));
             this.fontRendererObj.drawStringWithShadow(
-                    this.fontRendererObj.trimStringToWidth(text, width - 20), 14, y + LINE_ISSUE, issueColor);
+                    this.fontRendererObj.trimStringToWidth(text, width - 28), 14, y + LINE_ISSUE, issueColor);
         }
 
         int moreY = rowTop + visible * ROW_HEIGHT + 1;
@@ -371,6 +396,49 @@ public class GuiPatternCheckPanel extends GuiContainer {
         return Math.max(1, (this.ySize - LIST_TOP - LIST_BOTTOM_PAD) / ROW_HEIGHT);
     }
 
+    // ------------------------------------------------------------------
+    // Scrollbar
+    // ------------------------------------------------------------------
+
+    private int maxScroll() {
+        return Math.max(0, view().length - visibleRows());
+    }
+
+    private int scrollbarLeft() {
+        return this.xSize - SCROLLBAR_WIDTH - SCROLLBAR_PAD;
+    }
+
+    /** Thumb height in pixels, or 0 when the whole list fits without scrolling. */
+    private int thumbHeight(int trackHeight) {
+        int total = view().length;
+        int visible = visibleRows();
+        if (total <= visible) {
+            return 0;
+        }
+        return Math.max(SCROLLBAR_MIN_THUMB, trackHeight * visible / total);
+    }
+
+    /** Thumb top in gui-local coordinates; only meaningful when thumbHeight > 0. */
+    private int thumbTop(int trackHeight, int thumbHeight) {
+        int scrollable = trackHeight - thumbHeight;
+        if (scrollable <= 0) {
+            return LIST_TOP;
+        }
+        return LIST_TOP + (int) ((long) this.scroll * scrollable / (view().length - visibleRows()));
+    }
+
+    /** Maps a gui-local mouse Y (with the drag offset applied) onto the scroll. */
+    private void scrollTo(int relY) {
+        int trackHeight = visibleRows() * ROW_HEIGHT;
+        int thumbHeight = thumbHeight(trackHeight);
+        int scrollable = trackHeight - thumbHeight;
+        if (scrollable <= 0) {
+            return;
+        }
+        int rel = Math.max(0, Math.min(scrollable, relY - LIST_TOP - this.scrollbarGrabOffset));
+        this.scroll = (int) ((long) rel * maxScroll() / scrollable);
+    }
+
     /**
      * Tells NEI whether its item panel slot at this screen rect sits under this
      * panel, so NEI does not draw over the buttons on the right hand side.
@@ -387,7 +455,23 @@ public class GuiPatternCheckPanel extends GuiContainer {
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         int relX = mouseX - this.guiLeft;
         int relY = mouseY - this.guiTop;
-        if (button == 0 && relX >= 4 && relX <= this.xSize - 4 && relY >= LIST_TOP
+        if (button == 0 && this.maxScroll() > 0 && relX >= scrollbarLeft()
+                && relX <= scrollbarLeft() + SCROLLBAR_WIDTH
+                && relY >= LIST_TOP && relY < LIST_TOP + visibleRows() * ROW_HEIGHT) {
+            int trackHeight = visibleRows() * ROW_HEIGHT;
+            int thumbHeight = thumbHeight(trackHeight);
+            int thumbTop = thumbTop(trackHeight, thumbHeight);
+            if (relY < thumbTop || relY > thumbTop + thumbHeight) {
+                // click on the empty track: center the thumb under the mouse
+                this.scrollbarGrabOffset = thumbHeight / 2;
+                scrollTo(relY);
+            } else {
+                this.scrollbarGrabOffset = relY - thumbTop;
+            }
+            this.draggingScrollbar = true;
+            return;
+        }
+        if (button == 0 && relX >= 4 && relX <= this.xSize - 10 && relY >= LIST_TOP
                 && relY < LIST_TOP + visibleRows() * ROW_HEIGHT) {
             int[] rows = view();
             int vi = this.scroll + (relY - LIST_TOP) / ROW_HEIGHT;
@@ -396,6 +480,24 @@ public class GuiPatternCheckPanel extends GuiContainer {
             }
         }
         super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    protected void mouseClickMove(int mouseX, int mouseY, int button, long timeSinceLastClick) {
+        if (this.draggingScrollbar && button == 0) {
+            scrollTo(mouseY - this.guiTop);
+            return;
+        }
+        super.mouseClickMove(mouseX, mouseY, button, timeSinceLastClick);
+    }
+
+    @Override
+    protected void mouseMovedOrUp(int mouseX, int mouseY, int which) {
+        if (this.draggingScrollbar && which == 0) {
+            this.draggingScrollbar = false;
+            return;
+        }
+        super.mouseMovedOrUp(mouseX, mouseY, which);
     }
 
     @Override

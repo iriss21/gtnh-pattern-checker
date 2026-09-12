@@ -91,3 +91,5 @@ patternchecker.dim.1=The End
 patternchecker.pattern.crafting= (crafting)
 patternchecker.pattern.processing= (processing)
 patternchecker.issue.ok=No issue
+patternchecker.issue.ghost=Ignored pattern not in the scan results (removed, re-encoded, or outside the scanned network)
+patternchecker.gui.ghostName=Unknown pattern

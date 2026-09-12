@@ -2,7 +2,7 @@
   "modid": "gtnhpatternchecker",
   "name": "GTNH Pattern Checker",
   "description": "扫描 ME 网络中的 AE2 样板并报告问题（损坏/失效/数量异常/未注册/重复），带图形化检查面板、样板编辑与取出。适配 GTNH 2.8.4 (MC 1.7.10)。",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "mcversion": "1.7.10",
   "url": "https://github.com/iriss21/gtnh-pattern-checker",
   "updateUrl": "",

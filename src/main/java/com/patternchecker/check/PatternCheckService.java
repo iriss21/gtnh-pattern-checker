@@ -68,8 +68,16 @@ public final class PatternCheckService {
     private static final String[] THIRD_PARTY_PATTERN_ITEMS = {
             "com.myname.wildcardpattern.item.ItemWildcardPattern" };
 
-    /** Upper bound on the rows pushed to the panel (and kept for row-addressed actions). */
-    private static final int MAX_PANEL_ROWS = 150;
+    /**
+     * Upper bound on the rows pushed to the panel (and kept for row-addressed
+     * actions). Rows are sent in pages of {@link #ROWS_PER_PAGE} to respect the
+     * 1.7.10 32 KiB packet payload limit; the cap itself only bounds the panel
+     * list (and protocol traffic) for pathological bases.
+     */
+    private static final int MAX_PANEL_ROWS = 600;
+
+    /** Rows per panel-data packet; 120 rows stay well under the 32 KiB payload limit. */
+    private static final int ROWS_PER_PAGE = 120;
 
     /** Issue key of the "nothing wrong" rows listed for interface patterns. */
     public static final String ISSUE_OK = "patternchecker.issue.ok";
@@ -234,19 +242,12 @@ public final class PatternCheckService {
         // while ignored, or re-encoded - its content fingerprint changed - or it
         // lives outside the scanned network. Without a placeholder row it would be
         // invisible and impossible to un-ignore from the panel. Appended past the
-        // 150-row cap; when the pattern is reachable again ("scan all") it resolves
+        // row cap; when the pattern is reachable again ("scan all") it resolves
         // back into a real row.
         int ghostRows = appendGhostRows(stored, s.ignored);
 
         PanelStore.put(player, stored, all);
-        PacketPanelData packet = new PacketPanelData();
-        packet.status = status;
-        packet.totalPatterns = s.totalPatterns;
-        packet.interfacePatterns = s.interfacePatterns;
-        packet.storagePatterns = s.storagePatterns;
-        packet.errors = s.errors;
-        packet.warnings = s.warnings;
-        packet.thirdPartyPatterns = s.thirdPartyPatterns;
+
         // Toggle button counts are row counts over the full scan (not the capped
         // list), so each number matches how many rows appear when its toggle is
         // turned on. An ignored healthy row counts towards "ignored" only: once
@@ -260,12 +261,31 @@ public final class PatternCheckService {
                 healthyRows++;
             }
         }
-        packet.ignoredPatterns = ignoredRows + ghostRows;
-        packet.healthyPatterns = healthyRows;
-        for (PanelRow row : stored) {
-            packet.rows.add(toPacketRow(row));
+
+        // Rows go out in pages: one payload must stay under the 1.7.10 32 KiB
+        // packet limit, and a few hundred rows of names/coordinates/issue text do
+        // not. The client accumulates the pages in ClientPanelState.
+        int totalPages = Math.max(1, (stored.size() + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
+        for (int p = 0; p < totalPages; p++) {
+            PacketPanelData packet = new PacketPanelData();
+            packet.status = status;
+            packet.page = p;
+            packet.totalPages = totalPages;
+            packet.totalPatterns = s.totalPatterns;
+            packet.interfacePatterns = s.interfacePatterns;
+            packet.storagePatterns = s.storagePatterns;
+            packet.errors = s.errors;
+            packet.warnings = s.warnings;
+            packet.thirdPartyPatterns = s.thirdPartyPatterns;
+            packet.ignoredPatterns = ignoredRows + ghostRows;
+            packet.healthyPatterns = healthyRows;
+            int from = p * ROWS_PER_PAGE;
+            int to = Math.min(stored.size(), from + ROWS_PER_PAGE);
+            for (PanelRow row : stored.subList(from, to)) {
+                packet.rows.add(toPacketRow(row));
+            }
+            PatternCheckerNetwork.sendPanelData(player, packet);
         }
-        PatternCheckerNetwork.sendPanelData(player, packet);
     }
 
     /** 0 = error, 1 = warning, 2 = ignored, 3 = healthy. */

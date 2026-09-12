@@ -18,6 +18,9 @@ public class PacketPanelData implements IMessage {
     public static final int STATUS_NO_PATTERNS = 3;
 
     public int status;
+    /** 0-based page index; a scan of more rows than one packet fits is sent in pages. */
+    public int page;
+    public int totalPages;
     public int totalPatterns;
     public int interfacePatterns;
     public int storagePatterns;
@@ -95,6 +98,8 @@ public class PacketPanelData implements IMessage {
     @Override
     public void fromBytes(ByteBuf buf) {
         this.status = buf.readInt();
+        this.page = buf.readInt();
+        this.totalPages = buf.readInt();
         this.totalPatterns = buf.readInt();
         this.interfacePatterns = buf.readInt();
         this.storagePatterns = buf.readInt();
@@ -135,6 +140,8 @@ public class PacketPanelData implements IMessage {
     @Override
     public void toBytes(ByteBuf buf) {
         buf.writeInt(this.status);
+        buf.writeInt(this.page);
+        buf.writeInt(this.totalPages);
         buf.writeInt(this.totalPatterns);
         buf.writeInt(this.interfacePatterns);
         buf.writeInt(this.storagePatterns);

@@ -46,9 +46,21 @@ public final class ClientPanelState {
     }
 
     public static void apply(PacketPanelData packet) {
+        if (packet.page > 0) {
+            // Follow-up page of a paged scan: append its rows to the accumulating
+            // list. Pages are sent in order on one channel, so they arrive in
+            // order; the summary fields of page 0 are kept.
+            Snapshot current = state;
+            List<PacketPanelData.Row> merged = new ArrayList<>(current.rows);
+            merged.addAll(packet.rows);
+            state = new Snapshot(current.status, current.totalPatterns, current.interfacePatterns,
+                    current.storagePatterns, current.errors, current.warnings, current.thirdPartyPatterns,
+                    current.ignoredPatterns, current.healthyPatterns, merged);
+            return;
+        }
         state = new Snapshot(packet.status, packet.totalPatterns, packet.interfacePatterns, packet.storagePatterns,
                 packet.errors, packet.warnings, packet.thirdPartyPatterns, packet.ignoredPatterns,
-                packet.healthyPatterns, packet.rows);
+                packet.healthyPatterns, new ArrayList<>(packet.rows));
     }
 
     public static Snapshot current() {

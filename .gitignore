@@ -19,4 +19,4 @@ runs/
 
 # local logs
 *.log
-build-log.txt
+build-log*.txt

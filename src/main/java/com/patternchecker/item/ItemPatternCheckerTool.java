@@ -32,8 +32,8 @@ public class ItemPatternCheckerTool extends Item {
     public ItemPatternCheckerTool() {
         super();
         setMaxStackSize(1);
-        setUnlocalizedName("patternchecker.pattern_checker_tool");
-        setTextureName("patternchecker:pattern_checker_tool");
+        setUnlocalizedName("gtnhpatternchecker.pattern_checker_tool");
+        setTextureName("gtnhpatternchecker:pattern_checker_tool");
     }
 
     @Override
@@ -87,7 +87,7 @@ public class ItemPatternCheckerTool extends Item {
 
     @Override
     public void addInformation(ItemStack stack, EntityPlayer player, List tooltip, boolean advanced) {
-        tooltip.add(StatCollector.translateToLocal("item.patternchecker.pattern_checker_tool.tooltip"));
+        tooltip.add(StatCollector.translateToLocal("item.gtnhpatternchecker.pattern_checker_tool.tooltip"));
         String bound = Binding.describe(stack);
         if (bound != null) {
             tooltip.add(StatCollector.translateToLocalFormatted("patternchecker.bound.status", bound));

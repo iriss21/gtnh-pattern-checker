@@ -25,14 +25,14 @@ import cpw.mods.fml.common.Loader;
  * totals, and the panel keeps them out of the list until the player asks to see
  * them (so they can be un-ignored again).
  *
- * <p>The set lives in {@code config/patternchecker-ignored.txt} (one
+ * <p>The set lives in {@code config/gtnhpatternchecker-ignored.txt} (one
  * {@code player<TAB>fingerprint} line each), so it survives a restart. File
  * access is best effort: if the file cannot be read or written the feature
  * still works for the running session.
  */
 public final class IgnoreStore {
 
-    private static final String FILE_NAME = "patternchecker-ignored.txt";
+    private static final String FILE_NAME = "gtnhpatternchecker-ignored.txt";
 
     private static final Map<String, Set<String>> BY_PLAYER = new ConcurrentHashMap<>();
 

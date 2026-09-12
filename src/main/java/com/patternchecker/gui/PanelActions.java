@@ -24,8 +24,10 @@ import appeng.helpers.IInterfaceHost;
 import appeng.util.Platform;
 
 import com.patternchecker.PatternCheckerMod;
+import com.patternchecker.check.DimensionNames;
 import com.patternchecker.check.EditStore;
 import com.patternchecker.check.IgnoreStore;
+import com.patternchecker.check.ItemName;
 import com.patternchecker.check.PanelRow;
 import com.patternchecker.check.PanelStore;
 import com.patternchecker.check.PatternCheckService;
@@ -93,7 +95,7 @@ public final class PanelActions {
         if (key == null) {
             return;
         }
-        String name = pr.data.name;
+        String name = ItemName.plain(pr.data.name);
         if (ignore) {
             IgnoreStore.add(player.getCommandSenderName(), key);
             if (!name.isEmpty()) {
@@ -129,23 +131,27 @@ public final class PanelActions {
             return;
         }
         PanelRow pr = all.get(row);
-        if (pr.data.edit == null || !pr.data.edit.processing || pr.original == null
-                || pr.original.getTagCompound() == null) {
-            player.addChatMessage(new ChatComponentTranslation("patternchecker.edit.needProcessing"));
+        if (pr.data.edit == null || pr.original == null || pr.original.getTagCompound() == null) {
+            // Patterns sitting in ME storage have no interface slot to write back to.
+            player.addChatMessage(new ChatComponentTranslation("patternchecker.edit.notInInterface"));
             return;
         }
 
         NBTTagCompound tag = pr.original.getTagCompound();
+        boolean crafting = tag.getBoolean("crafting");
         NBTTagList inTag = tag.getTagList("in", 10);
         NBTTagList outTag = tag.getTagList("out", 10);
-        if (inTag.tagCount() > MAX_INPUT_SLOTS || outTag.tagCount() > MAX_OUTPUT_SLOTS) {
+        if ((!crafting && inTag.tagCount() > MAX_INPUT_SLOTS) || outTag.tagCount() > MAX_OUTPUT_SLOTS) {
             player.addChatMessage(new ChatComponentTranslation("patternchecker.edit.overflow",
                     inTag.tagCount() + "x" + outTag.tagCount()));
             return;
         }
 
         PacketEditData packet = new PacketEditData();
-        packet.name = pr.original.getDisplayName();
+        // The client resolves the localized name (a dedicated server has no lang).
+        packet.name = ItemName.encode(pr.original);
+        packet.dim = pr.data.edit.dim;
+        packet.dimName = DimensionNames.serverName(pr.data.edit.dim);
         packet.targetDesc = pr.data.edit.x + ", " + pr.data.edit.y + ", " + pr.data.edit.z;
         int unsupported = fillEntries(packet.inputs, inTag, MAX_INPUT_SLOTS);
         unsupported += fillEntries(packet.outputs, outTag, MAX_OUTPUT_SLOTS);
@@ -353,9 +359,18 @@ public final class PanelActions {
             return;
         }
 
+        // A crafting pattern can only carry a single output.
+        NBTTagCompound sessionTag = session.original.getTagCompound();
+        boolean crafting = sessionTag != null && sessionTag.getBoolean("crafting");
+        if (crafting && countFilled(outputs) != 1) {
+            player.addChatMessage(new ChatComponentTranslation("patternchecker.edit.craftingOneOutput"));
+            return;
+        }
+
         ItemStack reencoded = reencode(session.original, mult, inputs, outputs);
         if (reencoded == null) {
-            return; // specific message already sent
+            player.addChatMessage(new ChatComponentTranslation("patternchecker.edit.invalidLayout"));
+            return;
         }
         inv.setInventorySlotContents(session.slot, reencoded);
         EditStore.remove(player);
@@ -363,14 +378,27 @@ public final class PanelActions {
                 reencoded.getDisplayName()));
     }
 
+    private static int countFilled(List<PacketEditCommit.SlotState> slots) {
+        int filled = 0;
+        if (slots != null) {
+            for (PacketEditCommit.SlotState s : slots) {
+                if (s != null && !s.empty) {
+                    filled++;
+                }
+            }
+        }
+        return filled;
+    }
+
     /**
      * Rebuilds the pattern NBT from the edited slot layout.
      *
      * <p>Every key the original pattern carried is preserved verbatim (author,
-     * substitute flags plus anything AE2 addons put there, such as
-     * {@code tunnelUuid} for input-only patterns or AE2FC / ae2thing metadata);
-     * only {@code in}, {@code out} and the {@code crafting} flag are rewritten.
-     * The pattern stays a processing pattern.
+     * the {@code crafting} flag, substitute flags plus anything AE2 addons put
+     * there, such as {@code tunnelUuid} for input-only patterns or AE2FC /
+     * ae2thing metadata); only {@code in} and {@code out} are rewritten. The
+     * edited layout is valid for either kind: a crafting pattern keeps its
+     * 3x3 grid + single output shape, a processing pattern its free list.
      */
     private static ItemStack reencode(ItemStack original, long mult,
             List<PacketEditCommit.SlotState> inputs, List<PacketEditCommit.SlotState> outputs) {
@@ -379,31 +407,24 @@ public final class PanelActions {
             return null;
         }
 
-        int filledIn = 0;
-        int filledOut = 0;
-        for (PacketEditCommit.SlotState s : inputs) {
-            if (s != null && !s.empty) {
-                filledIn++;
-            }
-        }
-        for (PacketEditCommit.SlotState s : outputs) {
-            if (s != null && !s.empty) {
-                filledOut++;
-            }
-        }
+        int filledIn = countFilled(inputs);
+        int filledOut = countFilled(outputs);
         if (filledIn == 0 || filledOut == 0) {
             return null;
         }
 
         NBTTagCompound orig = original.getTagCompound();
+        boolean crafting = orig != null && orig.getBoolean("crafting");
         NBTTagCompound root = orig == null ? new NBTTagCompound() : (NBTTagCompound) orig.copy();
         root.removeTag("in");
         root.removeTag("out");
-        root.setBoolean("crafting", false);
+        root.setBoolean("crafting", crafting);
         root.setBoolean("substitute", orig != null && orig.getBoolean("substitute"));
         root.setBoolean("beSubstitute", orig != null && orig.getBoolean("beSubstitute"));
         root.setTag("in", buildList(inputs, MAX_INPUT_SLOTS, mult));
-        root.setTag("out", buildList(outputs, MAX_OUTPUT_SLOTS, mult));
+        // Crafting patterns store exactly one output; it may have been dropped in
+        // any of the three output cells, so collapse it to the first one.
+        root.setTag("out", crafting ? buildSingle(outputs, mult) : buildList(outputs, MAX_OUTPUT_SLOTS, mult));
 
         ItemStack out = original.copy();
         out.setTagCompound(root);
@@ -427,6 +448,31 @@ public final class PanelActions {
             writeEntry(gs, amount, tag);
             result.appendTag(tag);
         }
+        return result;
+    }
+
+    /** The single filled output of a crafting pattern, written as a 1-entry list. */
+    private static NBTTagList buildSingle(List<PacketEditCommit.SlotState> slots, long mult) {
+        NBTTagList result = new NBTTagList();
+        PacketEditCommit.SlotState found = null;
+        for (PacketEditCommit.SlotState s : slots) {
+            if (s != null && !s.empty && Item.getItemById(s.itemId) != null) {
+                found = s;
+                break;
+            }
+        }
+        if (found == null) {
+            result.appendTag(new NBTTagCompound());
+            return result;
+        }
+        long amount = saturatingMultiply(found.count < 1 ? 1L : Math.min(found.count, MAX_COUNT), mult);
+        ItemStack gs = new ItemStack(Item.getItemById(found.itemId), 1, found.damage);
+        if (found.tag != null) {
+            gs.setTagCompound(found.tag);
+        }
+        NBTTagCompound tag = new NBTTagCompound();
+        writeEntry(gs, amount, tag);
+        result.appendTag(tag);
         return result;
     }
 

@@ -20,10 +20,12 @@ public final class ClientPanelState {
         public final int warnings;
         public final int thirdPartyPatterns;
         public final int ignoredPatterns;
+        public final int healthyPatterns;
         public final List<PacketPanelData.Row> rows;
 
         Snapshot(int status, int totalPatterns, int interfacePatterns, int storagePatterns, int errors,
-                int warnings, int thirdPartyPatterns, int ignoredPatterns, List<PacketPanelData.Row> rows) {
+                int warnings, int thirdPartyPatterns, int ignoredPatterns, int healthyPatterns,
+                List<PacketPanelData.Row> rows) {
             this.status = status;
             this.totalPatterns = totalPatterns;
             this.interfacePatterns = interfacePatterns;
@@ -32,11 +34,12 @@ public final class ClientPanelState {
             this.warnings = warnings;
             this.thirdPartyPatterns = thirdPartyPatterns;
             this.ignoredPatterns = ignoredPatterns;
+            this.healthyPatterns = healthyPatterns;
             this.rows = rows;
         }
     }
 
-    private static volatile Snapshot state = new Snapshot(PacketPanelData.STATUS_NO_NETWORK, 0, 0, 0, 0, 0, 0, 0,
+    private static volatile Snapshot state = new Snapshot(PacketPanelData.STATUS_NO_NETWORK, 0, 0, 0, 0, 0, 0, 0, 0,
             new ArrayList<PacketPanelData.Row>());
 
     private ClientPanelState() {
@@ -44,7 +47,8 @@ public final class ClientPanelState {
 
     public static void apply(PacketPanelData packet) {
         state = new Snapshot(packet.status, packet.totalPatterns, packet.interfacePatterns, packet.storagePatterns,
-                packet.errors, packet.warnings, packet.thirdPartyPatterns, packet.ignoredPatterns, packet.rows);
+                packet.errors, packet.warnings, packet.thirdPartyPatterns, packet.ignoredPatterns,
+                packet.healthyPatterns, packet.rows);
     }
 
     public static Snapshot current() {

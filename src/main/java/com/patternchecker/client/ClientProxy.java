@@ -42,7 +42,7 @@ public class ClientProxy extends CommonProxy {
         try {
             Class.forName("com.patternchecker.client.nei.PatternCheckNei").getMethod("register").invoke(null);
         } catch (Throwable t) {
-            FMLLog.warning("[PatternChecker] NEI integration disabled: " + t);
+            FMLLog.warning("[GTNHPatternChecker] NEI integration disabled: " + t);
         }
     }
 

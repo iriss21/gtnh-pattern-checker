@@ -19,11 +19,11 @@ import com.patternchecker.network.PatternCheckerNetwork;
  * The pattern check panel: scan controls, issue list with selection, and
  * per-row actions (highlight / edit / extract / ignore).
  *
- * <p>Ignored patterns are hidden from the list by default; the toggle at the
- * bottom right reveals them (dimmed and tagged) so they can be un-ignored. The
- * packet always carries every row, so {@link #selected} stays an index into the
- * full row list and the row-addressed actions keep working whichever view is
- * shown.
+ * <p>Ignored and healthy patterns are hidden from the list by default; the
+ * toggles at the bottom reveal them (dimmed / tagged, respectively) so they can
+ * be un-ignored or picked for editing. The packet always carries every row, so
+ * {@link #selected} stays an index into the full row list and the row-addressed
+ * actions keep working whichever view is shown.
  */
 public class GuiPatternCheckPanel extends GuiContainer {
 
@@ -36,16 +36,22 @@ public class GuiPatternCheckPanel extends GuiContainer {
     private static final int BTN_IGNORE = 6;
     private static final int BTN_UNIGNORE = 7;
     private static final int BTN_SHOW_IGNORED = 8;
+    private static final int BTN_SHOW_HEALTHY = 9;
 
-    private static final int ROW_HEIGHT = 22;
+    /** Three text lines per row. 11px line pitch: the 9px glyph plus its drop
+     * shadow still clears (10px needed), a touch tighter than the old 12px. The
+     * spare 5px under the text keeps consecutive rows visually apart. */
+    private static final int ROW_HEIGHT = 36;
+    private static final int LINE_LOCATION = 11;
+    private static final int LINE_ISSUE = 22;
+    /** Height of the three text lines themselves; the rest of the row is spacing. */
+    private static final int ROW_TEXT_HEIGHT = LINE_ISSUE + 9;
     /** Summary is two lines now: buttons end at y=40, so the first line starts at 43. */
     private static final int SUMMARY_Y = 43;
     private static final int SUMMARY_ISSUES_Y = 52;
     private static final int LIST_TOP = 62;
     /** Keeps the list clear of the "more rows" line and the two button rows. */
-    private static final int LIST_BOTTOM_PAD = 48;
-    /** Drawn right below the list, above the first button row (y=184). */
-    private static final int MORE_Y = 174;
+    private static final int LIST_BOTTOM_PAD = 50;
     private static final int BTN_ROW_1 = 44;
     private static final int BTN_ROW_2 = 22;
 
@@ -54,16 +60,23 @@ public class GuiPatternCheckPanel extends GuiContainer {
     private int selected = -1;
     private boolean requestedScan;
     private boolean showIgnored;
+    /** Healthy ("no issue") rows are hidden by default and can be revealed. */
+    private boolean showHealthy;
 
-    /** Cached filtered view: full-list indices, rebuilt when data or toggle changes. */
+    /** Cached filtered view: full-list indices, rebuilt when data or toggles change. */
     private int[] view = new int[0];
     private ClientPanelState.Snapshot viewSource;
     private boolean viewSourceShowIgnored;
+    private boolean viewSourceShowHealthy;
 
     public GuiPatternCheckPanel(Container container) {
         super(container);
-        this.xSize = 248;
-        this.ySize = 228;
+        // 300x340, up from 248x238: the wider canvas keeps names/locations from
+        // being truncated and the taller one fits six 38px rows. GTNH's GUI
+        // auto-scale drops a scale step when the GUI stops fitting the canvas,
+        // so common setups (854x480, 1280x720) still show it in full.
+        this.xSize = 300;
+        this.ySize = 340;
     }
 
     @Override
@@ -71,20 +84,24 @@ public class GuiPatternCheckPanel extends GuiContainer {
         super.initGui();
         int left = this.guiLeft;
         int top = this.guiTop;
-        this.buttonList.add(new GuiButton(BTN_SCAN, left + 6, top + 22, 58, 18, I18n.format("patternchecker.gui.scan")));
-        this.buttonList.add(new GuiButton(BTN_SCAN_ALL, left + 66, top + 22, 66, 18, I18n.format("patternchecker.gui.scanAll")));
-        this.buttonList.add(new GuiButton(BTN_CLEAR, left + 134, top + 22, 66, 18, I18n.format("patternchecker.gui.clear")));
-        this.buttonList.add(new GuiButton(BTN_HIGHLIGHT, left + 6, top + this.ySize - BTN_ROW_1, 62, 18,
+        this.buttonList.add(new GuiButton(BTN_SCAN, left + 6, top + 22, 70, 18, I18n.format("patternchecker.gui.scan")));
+        this.buttonList.add(new GuiButton(BTN_SCAN_ALL, left + 80, top + 22, 104, 18,
+                I18n.format("patternchecker.gui.scanAll")));
+        this.buttonList.add(new GuiButton(BTN_CLEAR, left + 188, top + 22, 106, 18,
+                I18n.format("patternchecker.gui.clear")));
+        this.buttonList.add(new GuiButton(BTN_HIGHLIGHT, left + 6, top + this.ySize - BTN_ROW_1, 69, 18,
                 I18n.format("patternchecker.gui.highlight")));
-        this.buttonList.add(new GuiButton(BTN_EDIT, left + 70, top + this.ySize - BTN_ROW_1, 62, 18,
+        this.buttonList.add(new GuiButton(BTN_EDIT, left + 79, top + this.ySize - BTN_ROW_1, 69, 18,
                 I18n.format("patternchecker.gui.edit")));
-        this.buttonList.add(new GuiButton(BTN_EXTRACT, left + 134, top + this.ySize - BTN_ROW_1, 62, 18,
+        this.buttonList.add(new GuiButton(BTN_EXTRACT, left + 152, top + this.ySize - BTN_ROW_1, 69, 18,
                 I18n.format("patternchecker.gui.extract")));
-        this.buttonList.add(new GuiButton(BTN_IGNORE, left + 6, top + this.ySize - BTN_ROW_2, 62, 18,
+        this.buttonList.add(new GuiButton(BTN_IGNORE, left + 225, top + this.ySize - BTN_ROW_1, 69, 18,
                 I18n.format("patternchecker.gui.ignore")));
-        this.buttonList.add(new GuiButton(BTN_UNIGNORE, left + 70, top + this.ySize - BTN_ROW_2, 62, 18,
+        this.buttonList.add(new GuiButton(BTN_UNIGNORE, left + 6, top + this.ySize - BTN_ROW_2, 88, 18,
                 I18n.format("patternchecker.gui.unignore")));
-        this.buttonList.add(new GuiButton(BTN_SHOW_IGNORED, left + 134, top + this.ySize - BTN_ROW_2, 108, 18,
+        this.buttonList.add(new GuiButton(BTN_SHOW_HEALTHY, left + 98, top + this.ySize - BTN_ROW_2, 96, 18,
+                I18n.format("patternchecker.gui.showHealthy", 0)));
+        this.buttonList.add(new GuiButton(BTN_SHOW_IGNORED, left + 198, top + this.ySize - BTN_ROW_2, 96, 18,
                 I18n.format("patternchecker.gui.showIgnored", 0)));
         if (!this.requestedScan) {
             this.requestedScan = true;
@@ -134,7 +151,12 @@ public class GuiPatternCheckPanel extends GuiContainer {
             }
             break;
         case BTN_SHOW_IGNORED:
-            this.showIgnored = !this.showIgnored;
+        case BTN_SHOW_HEALTHY:
+            if (button.id == BTN_SHOW_IGNORED) {
+                this.showIgnored = !this.showIgnored;
+            } else {
+                this.showHealthy = !this.showHealthy;
+            }
             // the row list changes length; keep the selection in sync with it
             this.selected = -1;
             this.scroll = 0;
@@ -146,30 +168,37 @@ public class GuiPatternCheckPanel extends GuiContainer {
 
     /**
      * Full-list indices of the rows currently shown: everything but the ignored
-     * ones, unless the player asked to see those too.
+     * and the healthy ones, unless the player asked to see those too.
      */
     private int[] view() {
         ClientPanelState.Snapshot snap = ClientPanelState.current();
-        if (this.viewSource == snap && this.viewSourceShowIgnored == this.showIgnored) {
+        if (this.viewSource == snap && this.viewSourceShowIgnored == this.showIgnored
+                && this.viewSourceShowHealthy == this.showHealthy) {
             return this.view;
         }
         int size = 0;
         for (int i = 0; i < snap.rows.size(); i++) {
-            if (this.showIgnored || !snap.rows.get(i).ignored) {
+            if (show(snap.rows.get(i))) {
                 size++;
             }
         }
         int[] built = new int[size];
         int k = 0;
         for (int i = 0; i < snap.rows.size(); i++) {
-            if (this.showIgnored || !snap.rows.get(i).ignored) {
+            if (show(snap.rows.get(i))) {
                 built[k++] = i;
             }
         }
         this.view = built;
         this.viewSource = snap;
         this.viewSourceShowIgnored = this.showIgnored;
+        this.viewSourceShowHealthy = this.showHealthy;
         return built;
+    }
+
+    /** A row belongs to the current view when it is neither ignored nor healthy. */
+    private boolean show(PacketPanelData.Row row) {
+        return (this.showIgnored || !row.ignored) && (this.showHealthy || !row.healthy);
     }
 
     @Override
@@ -194,7 +223,9 @@ public class GuiPatternCheckPanel extends GuiContainer {
             }
             int y = rowTop + i * ROW_HEIGHT;
             if (rows[vi] == this.selected) {
-                drawRect(left + 4, y - 2, left + this.xSize - 4, y + ROW_HEIGHT - 4, 0x8032A852);
+                // Span the three text lines with 2px padding top and bottom; the old
+                // ROW_HEIGHT-derived box stopped 3px short of the issue line's glyphs.
+                drawRect(left + 4, y - 2, left + this.xSize - 4, y + ROW_TEXT_HEIGHT + 2, 0x8032A852);
             }
         }
     }
@@ -249,9 +280,9 @@ public class GuiPatternCheckPanel extends GuiContainer {
             PacketPanelData.Row row = snap.rows.get(rows[vi]);
             int y = rowTop + i * ROW_HEIGHT;
 
-            String head = row.name;
-            if (row.hasLoc) {
-                head = head + " (" + I18n.format(row.locKey, row.locArg) + ")";
+            String head = row.displayName();
+            if (row.kind != null && !row.kind.isEmpty()) {
+                head = head + I18n.format(row.kind);
             }
             if (row.ignored) {
                 head = I18n.format("patternchecker.gui.ignoredTag") + " " + head;
@@ -260,21 +291,44 @@ public class GuiPatternCheckPanel extends GuiContainer {
             this.fontRendererObj.drawStringWithShadow(
                     this.fontRendererObj.trimStringToWidth(head, width - 12), 6, y, headColor);
 
-            String text = I18n.format(row.issueKey, (Object[]) row.args);
-            int issueColor = row.ignored ? 0x707070 : (row.error ? 0xFF7070 : 0xE8C840);
+            // Dimension + coordinates on their own left aligned line, so neither the
+            // pattern name nor the location can push the other out of the row.
+            if (row.hasLoc) {
+                String loc = row.locArg == null || row.locArg.isEmpty()
+                        ? row.displayDim() + " · " + I18n.format(row.locKey)
+                        : row.displayDim() + " @ " + row.locArg;
+                this.fontRendererObj.drawStringWithShadow(
+                        this.fontRendererObj.trimStringToWidth(loc, width - 12), 6, y + LINE_LOCATION, 0x7C7C8C);
+            }
+
+            String text = I18n.format(row.issueKey, (Object[]) row.displayArgs());
+            int issueColor = row.ignored ? 0x707070 : (row.error ? 0xFF7070 : (row.healthy ? 0x60C060 : 0xE8C840));
             this.fontRendererObj.drawStringWithShadow(
-                    this.fontRendererObj.trimStringToWidth(text, width - 12), 14, y + 9, issueColor);
+                    this.fontRendererObj.trimStringToWidth(text, width - 20), 14, y + LINE_ISSUE, issueColor);
         }
 
+        int moreY = rowTop + visible * ROW_HEIGHT + 1;
         if (rows.length > this.scroll + visible) {
             this.fontRendererObj.drawStringWithShadow(
                     I18n.format("patternchecker.gui.more", rows.length - this.scroll - visible),
-                    6, MORE_Y, 0x8A8A9A);
+                    6, moreY, 0x8A8A9A);
         } else if (rows.length == 0 && snap.status == PacketPanelData.STATUS_OK) {
-            boolean allIgnored = !snap.rows.isEmpty();
+            // Every row was filtered out: all ignored, all healthy (hidden), or both.
+            boolean hasIgnored = false;
+            boolean hasHealthy = false;
+            for (PacketPanelData.Row r : snap.rows) {
+                if (r.ignored) {
+                    hasIgnored = true;
+                } else if (r.healthy) {
+                    hasHealthy = true;
+                }
+            }
+            boolean allHealthy = !hasIgnored && hasHealthy;
+            String key = allHealthy ? "patternchecker.gui.allHealthy"
+                    : (hasIgnored || hasHealthy) ? "patternchecker.gui.allIgnored" : "patternchecker.gui.none";
             this.fontRendererObj.drawStringWithShadow(
-                    I18n.format(allIgnored ? "patternchecker.gui.allIgnored" : "patternchecker.gui.none"),
-                    6, rowTop + 4, allIgnored ? 0x8A8A9A : 0x55FF55);
+                    I18n.format(key, snap.healthyPatterns), 6, rowTop + 4,
+                    (hasIgnored || hasHealthy) ? 0x8A8A9A : 0x55FF55);
         }
 
         // selection hint + button enable states
@@ -285,6 +339,10 @@ public class GuiPatternCheckPanel extends GuiContainer {
         setEnabled(BTN_EXTRACT, sel != null && sel.canExtract);
         setEnabled(BTN_IGNORE, sel != null && sel.canIgnore && !sel.ignored);
         setEnabled(BTN_UNIGNORE, sel != null && sel.ignored);
+        setLabel(BTN_SHOW_HEALTHY,
+                this.showHealthy
+                        ? I18n.format("patternchecker.gui.hideHealthy", snap.healthyPatterns)
+                        : I18n.format("patternchecker.gui.showHealthy", snap.healthyPatterns));
         setLabel(BTN_SHOW_IGNORED,
                 this.showIgnored
                         ? I18n.format("patternchecker.gui.hideIgnored", snap.ignoredPatterns)

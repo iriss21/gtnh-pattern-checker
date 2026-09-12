@@ -13,7 +13,10 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Mouse;
+import org.lwjgl.opengl.GL11;
 
+import com.patternchecker.check.DimensionNames;
+import com.patternchecker.check.ItemName;
 import com.patternchecker.network.PacketEditCommit;
 import com.patternchecker.network.PacketEditData;
 import com.patternchecker.network.PatternCheckerNetwork;
@@ -45,6 +48,18 @@ public class GuiPatternEdit extends GuiContainer {
     private static final int CELL = 18;
     /** Cells touch, exactly like AE2's own crafting/pattern grid. */
     private static final int PITCH = 18;
+    /** Amount text is scaled to this fraction of the normal font size. */
+    private static final float COUNT_SCALE = 0.7F;
+    /** Vanilla font line height, in unscaled pixels. */
+    private static final int FONT_HEIGHT = 8;
+
+    /** Left edge of the player inventory slots (matches ContainerPatternEdit). */
+    private static final int INV_LEFT = 38;
+    /** Gap between a slot frame and the box drawn around a group of slots. */
+    private static final int GROUP_PAD = 2;
+    private static final int SLOT_FILL = 0xFF26262E;
+    private static final int SLOT_BORDER = 0xFF3A3A4A;
+    private static final int GROUP_BORDER = 0xFF4E4E66;
     private static final long MAX_COUNT = 1_000_000_000_000_000L;
 
     /**
@@ -72,6 +87,10 @@ public class GuiPatternEdit extends GuiContainer {
     private final PacketEditData data;
     private final EditSlot[] inputs = new EditSlot[INPUT_SLOTS];
     private final EditSlot[] outputs = new EditSlot[OUTPUT_SLOTS];
+    /** Localized pattern name (the server only sends a descriptor). */
+    private String displayName = "";
+    /** Localized dimension of the edited interface. */
+    private String displayDim = "";
     private boolean actionSent;
     /**
      * Set when NEI's drag &amp; drop placed an item during the current click. NEI's
@@ -89,6 +108,8 @@ public class GuiPatternEdit extends GuiContainer {
         // 238, not 244: GTNH's GUI auto-scale leaves a 240px tall canvas on very
         // common setups (854x480, 1280x720), and anything taller hangs off the top.
         this.ySize = 238;
+        this.displayName = ItemName.resolve(data.name);
+        this.displayDim = DimensionNames.label(data.dim, data.dimName);
         copyInto(this.inputs, data.inputs);
         copyInto(this.outputs, data.outputs);
     }
@@ -104,6 +125,8 @@ public class GuiPatternEdit extends GuiContainer {
         }
         this.data.name = packet.name;
         this.data.targetDesc = packet.targetDesc;
+        this.displayName = ItemName.resolve(packet.name);
+        this.displayDim = DimensionNames.label(packet.dim, packet.dimName);
         this.actionSent = false;
         copyInto(this.inputs, packet.inputs);
         copyInto(this.outputs, packet.outputs);
@@ -465,10 +488,9 @@ public class GuiPatternEdit extends GuiContainer {
 
     @Override
     protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
-        // Flat fills only. This pass still runs with GL_DEPTH_TEST enabled and the
-        // world's depth values in the buffer, so anything drawn here can z-fight with
-        // what is around it and flicker; the ghost cells are painted in the foreground
-        // pass instead, which MC runs with depth testing off.
+        // Frames and fills only - they are flat rectangles, safe in this pass (the item
+        // icons and the amount text are painted in the foreground, where MC has depth
+        // testing off and they cannot z-fight with the panel).
         int left = this.guiLeft;
         int top = this.guiTop;
         drawRect(left, top, left + this.xSize, top + this.ySize, 0xF0101014);
@@ -477,35 +499,57 @@ public class GuiPatternEdit extends GuiContainer {
         drawRect(left, top, left + 1, top + this.ySize, 0xFF3A3A4A);
         drawRect(left + this.xSize - 1, top, left + this.xSize, top + this.ySize, 0xFF3A3A4A);
 
-        // player inventory cell background
+        // 3x3 input grid + output row: slot frames, then a box around each group
+        for (int i = 0; i < INPUT_SLOTS; i++) {
+            drawSlotFrame(left + GRID_ORIGIN_X + (i % GRID_COLS) * PITCH,
+                    top + GRID_ORIGIN_Y + (i / GRID_COLS) * PITCH);
+        }
+        drawGroupFrame(left + GRID_ORIGIN_X - GROUP_PAD, top + GRID_ORIGIN_Y - GROUP_PAD,
+                left + GRID_ORIGIN_X + (GRID_COLS - 1) * PITCH + CELL + GROUP_PAD - 1,
+                top + GRID_ORIGIN_Y + (GRID_COLS - 1) * PITCH + CELL + GROUP_PAD - 1);
+        for (int i = 0; i < OUTPUT_SLOTS; i++) {
+            drawSlotFrame(left + OUT_X + i * PITCH, top + OUT_Y);
+        }
+        drawGroupFrame(left + OUT_X - GROUP_PAD, top + OUT_Y - GROUP_PAD,
+                left + OUT_X + (OUTPUT_SLOTS - 1) * PITCH + CELL + GROUP_PAD - 1,
+                top + OUT_Y + CELL + GROUP_PAD - 1);
+
+        // player inventory + hotbar: one framed block, every slot framed
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 9; col++) {
-                int x = left + 38 + col * 18;
-                int y = top + INV_TOP + row * 18;
-                drawRect(x - 1, y - 1, x + 17, y + 17, 0xFF26262E);
+                drawSlotFrame(left + INV_LEFT + col * 18, top + INV_TOP + row * 18);
             }
         }
         for (int col = 0; col < 9; col++) {
-            int x = left + 38 + col * 18;
-            int y = top + HOTBAR_Y;
-            drawRect(x - 1, y - 1, x + 17, y + 17, 0xFF26262E);
+            drawSlotFrame(left + INV_LEFT + col * 18, top + HOTBAR_Y);
         }
+        drawGroupFrame(left + INV_LEFT - GROUP_PAD, top + INV_TOP - GROUP_PAD,
+                left + INV_LEFT + 8 * 18 + CELL + GROUP_PAD - 1, top + HOTBAR_Y + CELL + GROUP_PAD - 1);
+    }
+
+    /** One slot: 1px frame around a recessed fill, sized for a 16x16 sprite. */
+    private void drawSlotFrame(int x, int y) {
+        drawRect(x - 1, y - 1, x + CELL, y + CELL, SLOT_FILL);
+        drawRect(x - 1, y - 1, x + CELL, y, SLOT_BORDER);
+        drawRect(x - 1, y + CELL - 1, x + CELL, y + CELL, SLOT_BORDER);
+        drawRect(x - 1, y - 1, x, y + CELL, SLOT_BORDER);
+        drawRect(x + CELL - 1, y - 1, x + CELL, y + CELL, SLOT_BORDER);
+    }
+
+    /** Box around a group of slots (fills are left to {@link #drawSlotFrame}). */
+    private void drawGroupFrame(int x0, int y0, int x1, int y1) {
+        drawRect(x0, y0, x1, y0 + 1, GROUP_BORDER);
+        drawRect(x0, y1 - 1, x1, y1, GROUP_BORDER);
+        drawRect(x0, y0, x0 + 1, y1, GROUP_BORDER);
+        drawRect(x1 - 1, y0, x1, y1, GROUP_BORDER);
     }
 
     /**
-     * Ghost cells: background fill, icon and amount, all painted in the foreground
-     * pass where MC has depth testing disabled. Drawn in three sweeps because the
-     * phases need different GL state: flat fills and text must not run with GUI item
-     * lighting on, and icons should.
+     * Ghost slots: icons and amounts, painted in the foreground pass where MC has
+     * depth testing disabled. Drawn in two sweeps because the phases need different
+     * GL state: text must not run with GUI item lighting on, icons should.
      */
     private void paintGhostCells() {
-        for (int i = 0; i < INPUT_SLOTS; i++) {
-            drawCellBackground(GRID_ORIGIN_X + (i % GRID_COLS) * PITCH, GRID_ORIGIN_Y + (i / GRID_COLS) * PITCH);
-        }
-        for (int i = 0; i < OUTPUT_SLOTS; i++) {
-            drawCellBackground(OUT_X + i * PITCH, OUT_Y);
-        }
-
         RenderHelper.enableGUIStandardItemLighting();
         for (int i = 0; i < INPUT_SLOTS; i++) {
             drawCellIcon(this.inputs[i], GRID_ORIGIN_X + (i % GRID_COLS) * PITCH,
@@ -525,25 +569,39 @@ public class GuiPatternEdit extends GuiContainer {
         }
     }
 
-    private void drawCellBackground(int x, int y) {
-        drawRect(x - 1, y - 1, x + CELL, y + CELL, 0xFF2A2A34);
-    }
-
     private void drawCellIcon(EditSlot slot, int x, int y) {
         ItemStack icon = slot.type;
         if (icon == null || icon.getItem() == null) {
             return;
         }
         itemRender.renderItemAndEffectIntoGUI(this.fontRendererObj, this.mc.getTextureManager(), icon, x, y);
-        itemRender.renderItemOverlayIntoGUI(this.fontRendererObj, this.mc.getTextureManager(), icon, x, y, null);
     }
 
+    /**
+     * Amount, in the bottom right corner of the cell and scaled down so it does
+     * not cover the icon.
+     *
+     * <p>{@code renderItemIntoGUI} draws the sprite at {@code zLevel + 50}, so the
+     * text has to run with depth testing off to land on top of it - the same
+     * thing vanilla does in {@code RenderItem#renderItemOverlayIntoGUI} before
+     * drawing a stack size.
+     */
     private void drawCellCount(EditSlot slot, int x, int y) {
         if (slot.type == null || slot.count <= 1) {
             return;
         }
-        this.fontRendererObj.drawStringWithShadow(
-                this.fontRendererObj.trimStringToWidth(formatCount(slot.count), CELL - 1), x + 1, y + 9, 0x9ADB9A);
+        String text = this.fontRendererObj.trimStringToWidth(formatCount(slot.count), CELL);
+        int textWidth = this.fontRendererObj.getStringWidth(text);
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_CURRENT_BIT);
+        GL11.glDisable(GL11.GL_LIGHTING);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glPushMatrix();
+        // anchor at the bottom right corner of the cell, then scale the text down
+        GL11.glTranslatef(x + CELL - 1 - textWidth * COUNT_SCALE, y + CELL - 2 - FONT_HEIGHT * COUNT_SCALE, 250.0F);
+        GL11.glScalef(COUNT_SCALE, COUNT_SCALE, 1.0F);
+        this.fontRendererObj.drawStringWithShadow(text, 0, 0, 0x9ADB9A);
+        GL11.glPopMatrix();
+        GL11.glPopAttrib();
     }
 
     @Override
@@ -555,9 +613,10 @@ public class GuiPatternEdit extends GuiContainer {
         this.fontRendererObj.drawStringWithShadow(title, width / 2 - this.fontRendererObj.getStringWidth(title) / 2,
                 6, 0xFFFFFF);
 
-        String name = this.fontRendererObj.trimStringToWidth(this.data.name, width - 12);
+        String name = this.fontRendererObj.trimStringToWidth(this.displayName, width - 12);
         this.fontRendererObj.drawStringWithShadow(name, 6, 16, 0xFFFFFF);
-        String target = I18n.format("patternchecker.location.provider", this.data.targetDesc);
+        String target = I18n.format("patternchecker.location.provider", this.data.targetDesc) + " · "
+                + this.displayDim;
         this.fontRendererObj.drawStringWithShadow(
                 this.fontRendererObj.trimStringToWidth(target, width - 12), 6, 25, 0x8A8A9A);
         this.fontRendererObj.drawStringWithShadow(

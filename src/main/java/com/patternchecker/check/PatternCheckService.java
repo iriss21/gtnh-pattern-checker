@@ -26,6 +26,7 @@ import net.minecraft.util.IChatComponent;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
 
+import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.common.util.ForgeDirection;
 
 import com.google.common.collect.ImmutableList;
@@ -70,6 +71,9 @@ public final class PatternCheckService {
     /** Upper bound on the rows pushed to the panel (and kept for row-addressed actions). */
     private static final int MAX_PANEL_ROWS = 150;
 
+    /** Issue key of the "nothing wrong" rows listed for interface patterns. */
+    public static final String ISSUE_OK = "patternchecker.issue.ok";
+
     private PatternCheckService() {
     }
 
@@ -112,23 +116,27 @@ public final class PatternCheckService {
         report(player, session);
     }
 
-    /** /patterncheck scan all */
+    /** /patterncheck scan all — every loaded dimension, not just the player's. */
     public static void scanAll(EntityPlayerMP player) {
-        WorldServer world = MinecraftServer.getServer().worldServerForDimension(player.dimension);
         say(player, "patternchecker.msg.scanningAll");
 
         Set<IGrid> seen = Collections.newSetFromMap(new IdentityHashMap<IGrid, Boolean>());
         ScanSession session = new ScanSession(player, player.dimension);
         int index = 0;
-        for (Object o : world.loadedTileEntityList) {
-            if (!(o instanceof TileEntity)) {
+        for (WorldServer world : DimensionManager.getWorlds()) {
+            if (world == null) {
                 continue;
             }
-            IGrid grid = gridAt((TileEntity) o);
-            if (grid == null || !seen.add(grid)) {
-                continue;
+            for (Object o : world.loadedTileEntityList) {
+                if (!(o instanceof TileEntity)) {
+                    continue;
+                }
+                IGrid grid = gridAt((TileEntity) o);
+                if (grid == null || !seen.add(grid)) {
+                    continue;
+                }
+                scanGridInto(grid, world, session, ++index);
             }
-            scanGridInto(grid, world, session, ++index);
         }
         if (index == 0) {
             say(player, "patternchecker.msg.none");
@@ -146,19 +154,23 @@ public final class PatternCheckService {
         MinecraftServer server = MinecraftServer.getServer();
 
         if (all) {
-            WorldServer world = server.worldServerForDimension(player.dimension);
             ScanSession session = new ScanSession(player, player.dimension);
             Set<IGrid> seen = Collections.newSetFromMap(new IdentityHashMap<IGrid, Boolean>());
             int index = 0;
-            for (Object o : world.loadedTileEntityList) {
-                if (!(o instanceof TileEntity)) {
+            for (WorldServer world : DimensionManager.getWorlds()) {
+                if (world == null) {
                     continue;
                 }
-                IGrid grid = gridAt((TileEntity) o);
-                if (grid == null || !seen.add(grid)) {
-                    continue;
+                for (Object o : world.loadedTileEntityList) {
+                    if (!(o instanceof TileEntity)) {
+                        continue;
+                    }
+                    IGrid grid = gridAt((TileEntity) o);
+                    if (grid == null || !seen.add(grid)) {
+                        continue;
+                    }
+                    scanGridInto(grid, world, session, ++index);
                 }
-                scanGridInto(grid, world, session, ++index);
             }
             finishPanel(player, session, index == 0 ? PacketPanelData.STATUS_NO_NETWORK : PacketPanelData.STATUS_OK, true);
             return;
@@ -197,19 +209,21 @@ public final class PatternCheckService {
         if (status == PacketPanelData.STATUS_OK && s.totalPatterns == 0) {
             status = PacketPanelData.STATUS_NO_PATTERNS;
         }
-        // Non-ignored rows first: the panel hides ignored ones by default and
-        // lists them at the end when the player asks to see them.
-        List<PanelRow> ordered = new ArrayList<>(s.rows.size());
-        for (PanelRow row : s.rows) {
-            if (!row.data.ignored) {
-                ordered.add(row);
+        // Errors first, then warnings, then ignored rows, then the healthy ones
+        // (which include the crafting patterns stored in ME cells) - before the
+        // 150 row cap is applied, so a big base never pushes real problems out of
+        // the list. Ignored rows rank above healthy ones because they are how the
+        // panel reaches an ignored pattern again ("show ignored"); the healthy
+        // rows are the most expendable since the panel hides them by default.
+        // TimSort is stable, so same-severity rows keep their scan order.
+        List<PanelRow> ordered = new ArrayList<>(s.rows);
+        Collections.sort(ordered, new Comparator<PanelRow>() {
+            @Override
+            public int compare(PanelRow a, PanelRow b) {
+                return severity(a) - severity(b);
             }
-        }
-        for (PanelRow row : s.rows) {
-            if (row.data.ignored) {
-                ordered.add(row);
-            }
-        }
+        });
+
         int cap = Math.min(ordered.size(), MAX_PANEL_ROWS);
         List<PanelRow> stored = new ArrayList<>(ordered.subList(0, cap));
         PanelStore.put(player, stored, all);
@@ -221,11 +235,36 @@ public final class PatternCheckService {
         packet.errors = s.errors;
         packet.warnings = s.warnings;
         packet.thirdPartyPatterns = s.thirdPartyPatterns;
-        packet.ignoredPatterns = s.ignoredIssues;
+        // Toggle button counts are row counts over the full scan (not the capped
+        // list), so each number matches how many rows appear when its toggle is
+        // turned on. An ignored healthy row counts towards "ignored" only: once
+        // ignored, a pattern is governed by that toggle, not by "show healthy".
+        int ignoredRows = 0;
+        int healthyRows = 0;
+        for (PanelRow row : s.rows) {
+            if (row.data.ignored) {
+                ignoredRows++;
+            } else if (ISSUE_OK.equals(row.data.issueKey)) {
+                healthyRows++;
+            }
+        }
+        packet.ignoredPatterns = ignoredRows;
+        packet.healthyPatterns = healthyRows;
         for (PanelRow row : stored) {
             packet.rows.add(toPacketRow(row));
         }
         PatternCheckerNetwork.sendPanelData(player, packet);
+    }
+
+    /** 0 = error, 1 = warning, 2 = ignored, 3 = healthy. */
+    private static int severity(PanelRow row) {
+        if (row.data.ignored) {
+            return 2;
+        }
+        if (ISSUE_OK.equals(row.data.issueKey)) {
+            return 3;
+        }
+        return row.data.error ? 0 : 1;
     }
 
     private static PacketPanelData.Row toPacketRow(PanelRow row) {
@@ -233,16 +272,28 @@ public final class PatternCheckService {
         IssueData d = row.data;
         r.error = d.error;
         r.name = d.name;
+        // lang key of the kind suffix ("（合成样板）" / "（处理样板）"); "" when unknown
+        r.kind = d.kind == null ? "" : d.kind;
         r.hasLoc = d.locKey != null;
         r.locKey = d.locKey == null ? "" : d.locKey;
         r.locArg = d.locArg == null ? "" : d.locArg;
         r.issueKey = d.issueKey;
         r.args = d.args;
         r.canHighlight = d.pos != null;
-        r.canEdit = d.edit != null && d.edit.processing;
+        // Both processing and crafting patterns are editable: the 3x3 grid maps
+        // onto a crafting pattern's slot layout as-is, and the editor keeps the
+        // original "crafting" flag when re-encoding.
+        r.canEdit = d.edit != null;
         r.canExtract = d.edit != null;
         r.canIgnore = d.key != null;
         r.ignored = d.ignored;
+        // "ok" rows are the healthy patterns; the panel hides them by default.
+        r.healthy = ISSUE_OK.equals(d.issueKey);
+        if (d.locKey != null) {
+            // patterns in interface slots and in ME storage both carry a location line
+            r.dim = d.dim;
+            r.dimName = DimensionNames.serverName(d.dim);
+        }
         return r;
     }
 
@@ -349,12 +400,14 @@ public final class PatternCheckService {
                 continue;
             }
             int[] pos = { where.x, where.y, where.z };
+            // the interface's own dimension, not the dimension being scanned from
+            int dim = where.getDimension();
             for (int slot = 0; slot < inv.getSizeInventory(); slot++) {
                 ItemStack stack = inv.getStackInSlot(slot);
                 if (stack == null) {
                     continue;
                 }
-                checkOne(s, world, stack, true, s.dimension, slot, pos,
+                checkOne(s, world, stack, true, dim, slot, pos,
                         "patternchecker.location.provider", where.x + ", " + where.y + ", " + where.z,
                         registered, stocked, craftableOutputs, duplicateGroups);
             }
@@ -381,7 +434,7 @@ public final class PatternCheckService {
                 if (tag == null || !tag.hasKey("in")) {
                     continue;
                 }
-                checkOne(s, world, stack, false, s.dimension, -1, null,
+                checkOne(s, world, stack, false, world.provider.dimensionId, -1, null,
                         "patternchecker.location.storage", "",
                         registered, stocked, craftableOutputs, duplicateGroups);
             }
@@ -462,7 +515,7 @@ public final class PatternCheckService {
         if (isBlankPattern(item)) {
             if (fromInterface) {
                 countPattern(s, fromInterface);
-                addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, false,
+                addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, null,
                         "patternchecker.issue.blankPattern", new String[0]);
             }
             return;
@@ -474,7 +527,7 @@ public final class PatternCheckService {
             // an encoded-pattern item with no NBT at all: nothing can read it
             if (fromInterface) {
                 countPattern(s, fromInterface);
-                addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, false,
+                addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, null,
                         "patternchecker.issue.blankPattern", new String[0]);
             }
             return;
@@ -492,10 +545,11 @@ public final class PatternCheckService {
 
         countPattern(s, fromInterface);
 
-        boolean nbtProcessing = !tag.getBoolean("crafting");
+        // used at the end of the checks: no new row means this pattern is healthy
+        int rowsBefore = s.rows.size();
 
         if (tag.getBoolean("InvalidPattern")) {
-            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, nbtProcessing,
+            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, null,
                     "patternchecker.issue.invalid", new String[0]);
             return;
         }
@@ -508,7 +562,7 @@ public final class PatternCheckService {
             // longer exists; for processing patterns it means corrupted NBT.
             boolean wasCrafting = tag.getBoolean("crafting");
             String why = t.getMessage() != null ? t.getMessage() : t.toString();
-            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, nbtProcessing,
+            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, null,
                     wasCrafting ? "patternchecker.issue.recipeChanged" : "patternchecker.issue.undecodable",
                     new String[] { why });
             return;
@@ -516,11 +570,11 @@ public final class PatternCheckService {
         if (details == null) {
             if (!tag.hasKey("in")) {
                 // no standard layout and the item cannot decode it either
-                addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, nbtProcessing,
+                addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, null,
                         "patternchecker.issue.blankPattern", new String[0]);
                 return;
             }
-            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, nbtProcessing,
+            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, null,
                     "patternchecker.issue.undecodable", new String[] { "null" });
             return;
         }
@@ -536,7 +590,7 @@ public final class PatternCheckService {
             }
         }
         if (badOutput) {
-            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, processing,
+            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, details,
                     "patternchecker.issue.processing.zeroOutput", new String[0]);
         }
 
@@ -547,7 +601,7 @@ public final class PatternCheckService {
             }
         }
         if (badInput) {
-            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, processing,
+            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, true, details,
                     processing ? "patternchecker.issue.processing.zeroInput" : "patternchecker.issue.input.empty",
                     new String[0]);
         }
@@ -555,7 +609,7 @@ public final class PatternCheckService {
         if (processing && condensedIn.length == 1 && condensedOut.length == 1
                 && condensedOut[0].isSameType(condensedIn[0])
                 && condensedOut[0].getStackSize() == condensedIn[0].getStackSize()) {
-            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, processing,
+            addPatternIssue(s, stack, locKey, locArg, pos, dim, slot, false, details,
                     "patternchecker.issue.processing.selfLoop", new String[0]);
         }
 
@@ -566,18 +620,26 @@ public final class PatternCheckService {
                 continue;
             }
             if (!stocked.contains(i) && !craftableOutputs.contains(i)) {
-                missing.add(i.getItemStack().getDisplayName());
+                missing.add(ItemName.encode(i.getItemStack()));
             }
         }
         if (!missing.isEmpty()) {
-            addRowIssue(s, stack, locKey, locArg, pos, dim, slot, false, processing,
-                    "patternchecker.issue.input.missing", new String[] { join(missing) });
+            addRowIssue(s, stack, locKey, locArg, pos, dim, slot, false, details,
+                    "patternchecker.issue.input.missing", new String[] { ItemName.join(missing) });
         }
 
         // Registered in the crafting cache?
         if (fromInterface && !registered.contains(typeKey(stack))) {
-            addRowIssue(s, stack, locKey, locArg, pos, dim, slot, false, processing,
+            addRowIssue(s, stack, locKey, locArg, pos, dim, slot, false, details,
                     "patternchecker.issue.unregistered", new String[0]);
+        }
+
+        // Any pattern with nothing to report still gets a row, including the ones
+        // sitting in ME storage: the panel is also how a pattern is found and
+        // picked, and a healthy crafting pattern would otherwise never show up
+        // (its item is named "编码样板" either way, only its output identifies it).
+        if (s.rows.size() == rowsBefore) {
+            addOkRow(s, stack, locKey, locArg, pos, dim, slot, details);
         }
 
         DupKey key = new DupKey(processing, condensedIn, condensedOut);
@@ -587,6 +649,62 @@ public final class PatternCheckService {
             duplicateGroups.put(key, group);
         }
         group.add(new ScannedRef(key, pos));
+    }
+
+    /**
+     * Row label: the pattern's <em>output</em>, which is what a player recognises
+     * the pattern by (every encoded pattern is otherwise just named "编码样板").
+     * Falls back to the pattern item itself when it cannot be decoded.
+     */
+    private static String rowName(ItemStack stack, ICraftingPatternDetails details) {
+        if (details != null) {
+            IAEItemStack out = firstStack(details.getCondensedOutputs());
+            if (out != null && out.getItemStack() != null) {
+                return ItemName.encode(out.getItemStack());
+            }
+        }
+        return ItemName.encode(stack);
+    }
+
+    /** Lang key of the kind suffix shown after the name. */
+    private static String rowKind(ICraftingPatternDetails details) {
+        if (details == null) {
+            return "";
+        }
+        return details.isCraftable() ? "patternchecker.pattern.crafting" : "patternchecker.pattern.processing";
+    }
+
+    private static IAEItemStack firstStack(IAEItemStack[] stacks) {
+        if (stacks == null) {
+            return null;
+        }
+        for (IAEItemStack s : stacks) {
+            if (s != null) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A pattern with no issue at all. Not counted, not printed to chat - only the
+     * panel lists it, so it can be selected (and edited) like any other pattern.
+     * Also how a healthy pattern stored in ME cells becomes visible at all.
+     *
+     * <p>An ignored pattern still gets its row (flagged as ignored), so the panel
+     * can list it under "show ignored" and the player can un-ignore it again;
+     * dropping the row entirely would leave no path back to the pattern.
+     */
+    private static void addOkRow(ScanSession s, ItemStack stack, String locKey, String locArg, int[] pos,
+            int dim, int slot, ICraftingPatternDetails details) {
+        String key = PatternKey.of(stack);
+        boolean ignored = s.isIgnored(key);
+        boolean processing = details == null || !details.isCraftable();
+        IssueData.EditTarget edit = editTarget(dim, slot, pos, processing);
+        s.rows.add(new PanelRow(
+                new IssueData(false, rowName(stack, details), rowKind(details), locKey, locArg, ISSUE_OK,
+                        new String[0], pos, dim, edit, key, ignored),
+                edit != null ? stack.copy() : null));
     }
 
     private static void countPattern(ScanSession s, boolean fromInterface) {
@@ -640,17 +758,6 @@ public final class PatternCheckService {
         return AEApi.instance().storage().createItemStack(copy);
     }
 
-    private static String join(List<String> parts) {
-        StringBuilder sb = new StringBuilder();
-        for (String p : parts) {
-            if (sb.length() > 0) {
-                sb.append(", ");
-            }
-            sb.append(p);
-        }
-        return sb.toString();
-    }
-
     // ------------------------------------------------------------------
     // Issue rows (chat + panel)
     // ------------------------------------------------------------------
@@ -670,13 +777,14 @@ public final class PatternCheckService {
      * nor printed to chat.
      */
     private static void addPatternIssue(ScanSession s, ItemStack stack, String locKey, String locArg, int[] pos,
-            int dim, int slot, boolean error, boolean processing, String issueKey, String[] args) {
+            int dim, int slot, boolean error, ICraftingPatternDetails details, String issueKey, String[] args) {
         String key = PatternKey.of(stack);
         boolean ignored = s.isIgnored(key);
+        boolean processing = details == null || !details.isCraftable();
         IssueData.EditTarget edit = editTarget(dim, slot, pos, processing);
         s.rows.add(new PanelRow(
-                new IssueData(error, stack.getDisplayName(), locKey, locArg, issueKey, args, pos, dim, edit, key,
-                        ignored),
+                new IssueData(error, rowName(stack, details), rowKind(details), locKey, locArg, issueKey, args, pos,
+                        dim, edit, key, ignored),
                 edit != null ? stack.copy() : null));
         if (countIssue(s, error, ignored)) {
             return;
@@ -691,31 +799,35 @@ public final class PatternCheckService {
                 .appendSibling(location)
                 .appendSibling(close);
         s.lines.add(head);
-        s.lines.add(chatIssueLine(error, new ChatComponentTranslation(issueKey, (Object[]) args), pos, s));
+        s.lines.add(chatIssueLine(error,
+                new ChatComponentTranslation(issueKey, (Object[]) ItemName.plainAll(args)), pos, s));
     }
 
     /** Sub-issue of a pattern: chat gets only the issue line; panel gets a full row. */
     private static void addRowIssue(ScanSession s, ItemStack stack, String locKey, String locArg, int[] pos,
-            int dim, int slot, boolean error, boolean processing, String issueKey, String[] args) {
+            int dim, int slot, boolean error, ICraftingPatternDetails details, String issueKey, String[] args) {
         String key = PatternKey.of(stack);
         boolean ignored = s.isIgnored(key);
+        boolean processing = details == null || !details.isCraftable();
         IssueData.EditTarget edit = editTarget(dim, slot, pos, processing);
         s.rows.add(new PanelRow(
-                new IssueData(error, stack.getDisplayName(), locKey, locArg, issueKey, args, pos, dim, edit, key,
-                        ignored),
+                new IssueData(error, rowName(stack, details), rowKind(details), locKey, locArg, issueKey, args, pos,
+                        dim, edit, key, ignored),
                 edit != null ? stack.copy() : null));
         if (countIssue(s, error, ignored)) {
             return;
         }
 
-        s.lines.add(chatIssueLine(error, new ChatComponentTranslation(issueKey, (Object[]) args), pos, s));
+        s.lines.add(chatIssueLine(error,
+                new ChatComponentTranslation(issueKey, (Object[]) ItemName.plainAll(args)), pos, s));
     }
 
     /** Group issue (duplicates): no name/location context. */
     private static void addBareIssue(ScanSession s, boolean error, String issueKey, String[] args, int[] pos,
             String key) {
         boolean ignored = s.isIgnored(key);
-        s.rows.add(new PanelRow(new IssueData(error, "", null, "", issueKey, args, pos, 0, null, key, ignored), null));
+        s.rows.add(new PanelRow(
+                new IssueData(error, "", "", null, "", issueKey, args, pos, 0, null, key, ignored), null));
         if (countIssue(s, error, ignored)) {
             return;
         }

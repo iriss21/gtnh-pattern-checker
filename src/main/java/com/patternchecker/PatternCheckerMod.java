@@ -27,14 +27,14 @@ import com.patternchecker.network.PatternCheckerNetwork;
  * clickable world highlights and in-panel editing / extraction.
  */
 @Mod(
-        modid = "patternchecker",
-        name = "Pattern Checker",
-        version = "1.5.0",
+        modid = "gtnhpatternchecker",
+        name = "GTNH Pattern Checker",
+        version = "0.5.2",
         acceptedMinecraftVersions = "[1.7.10]",
         dependencies = "required-after:appliedenergistics2")
 public class PatternCheckerMod {
 
-    public static final String MOD_ID = "patternchecker";
+    public static final String MOD_ID = "gtnhpatternchecker";
 
     @Mod.Instance(MOD_ID)
     public static PatternCheckerMod instance;

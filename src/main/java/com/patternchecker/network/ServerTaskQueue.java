@@ -40,7 +40,7 @@ public final class ServerTaskQueue {
             try {
                 task.run();
             } catch (Throwable t) {
-                FMLLog.warning("[PatternChecker] deferred packet task failed: " + t);
+                FMLLog.warning("[GTNHPatternChecker] deferred packet task failed: " + t);
             }
         }
     }

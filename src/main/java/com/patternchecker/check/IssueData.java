@@ -28,6 +28,11 @@ public final class IssueData {
 
     public final boolean error;
     public final String name;
+    /**
+     * Lang key of the pattern kind, appended to the name when present:
+     * "（合成样板）" / "（处理样板）". Empty when the pattern could not be decoded.
+     */
+    public final String kind;
     /** null = no location line (pure group issues like duplicates). */
     public final String locKey;
     public final String locArg;
@@ -42,10 +47,11 @@ public final class IssueData {
     /** True when the pattern is on the player's ignore list. */
     public final boolean ignored;
 
-    public IssueData(boolean error, String name, String locKey, String locArg, String issueKey, String[] args,
-            int[] pos, int dim, EditTarget edit, String key, boolean ignored) {
+    public IssueData(boolean error, String name, String kind, String locKey, String locArg, String issueKey,
+            String[] args, int[] pos, int dim, EditTarget edit, String key, boolean ignored) {
         this.error = error;
         this.name = name;
+        this.kind = kind;
         this.locKey = locKey;
         this.locArg = locArg;
         this.issueKey = issueKey;

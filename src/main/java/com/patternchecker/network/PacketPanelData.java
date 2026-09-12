@@ -26,6 +26,8 @@ public class PacketPanelData implements IMessage {
     public int thirdPartyPatterns;
     /** Issues suppressed because the player ignored that pattern. */
     public int ignoredPatterns;
+    /** Patterns with no issue at all; the panel hides them unless asked for. */
+    public int healthyPatterns;
 
     public final java.util.List<Row> rows = new java.util.ArrayList<>();
 
@@ -33,6 +35,8 @@ public class PacketPanelData implements IMessage {
 
         public boolean error;
         public String name = "";
+        /** Lang key of the kind suffix ("（合成样板）" / "（处理样板）"); "" when unknown. */
+        public String kind = "";
         public boolean hasLoc;
         public String locKey = "";
         public String locArg = "";
@@ -45,6 +49,44 @@ public class PacketPanelData implements IMessage {
         public boolean canIgnore;
         /** The pattern is on the player's ignore list; hidden unless asked for. */
         public boolean ignored;
+        /** The pattern has no issue at all ("ok" row); hidden unless asked for. */
+        public boolean healthy;
+        /** Dimension id, and the server's own name for it (only valid when hasLoc). */
+        public int dim;
+        public String dimName = "";
+
+        /** Client-side cache of the localized text (resolved on first use). */
+        private String displayName;
+        private String[] displayArgs;
+        private String displayDim;
+
+        /** Localized dimension label, e.g. "主世界" / "Twilight Forest". */
+        public String displayDim() {
+            if (this.displayDim == null) {
+                this.displayDim = com.patternchecker.check.DimensionNames.label(this.dim, this.dimName);
+            }
+            return this.displayDim;
+        }
+
+        /**
+         * Localized pattern name. The server cannot translate (a dedicated server
+         * has no language files), so it sends a descriptor and the client resolves
+         * it with its own language pack.
+         */
+        public String displayName() {
+            if (this.displayName == null) {
+                this.displayName = com.patternchecker.check.ItemName.resolve(this.name);
+            }
+            return this.displayName;
+        }
+
+        /** Localized issue arguments (same decoding as {@link #displayName()}). */
+        public String[] displayArgs() {
+            if (this.displayArgs == null) {
+                this.displayArgs = com.patternchecker.check.ItemName.resolveAll(this.args);
+            }
+            return this.displayArgs;
+        }
     }
 
     public PacketPanelData() {
@@ -60,11 +102,13 @@ public class PacketPanelData implements IMessage {
         this.warnings = buf.readInt();
         this.thirdPartyPatterns = buf.readInt();
         this.ignoredPatterns = buf.readInt();
+        this.healthyPatterns = buf.readInt();
         int count = buf.readInt();
         for (int i = 0; i < count; i++) {
             Row r = new Row();
             r.error = buf.readBoolean();
             r.name = ByteBufUtils.readUTF8String(buf);
+            r.kind = ByteBufUtils.readUTF8String(buf);
             r.hasLoc = buf.readBoolean();
             if (r.hasLoc) {
                 r.locKey = ByteBufUtils.readUTF8String(buf);
@@ -81,6 +125,9 @@ public class PacketPanelData implements IMessage {
             r.canExtract = buf.readBoolean();
             r.canIgnore = buf.readBoolean();
             r.ignored = buf.readBoolean();
+            r.healthy = buf.readBoolean();
+            r.dim = buf.readInt();
+            r.dimName = ByteBufUtils.readUTF8String(buf);
             this.rows.add(r);
         }
     }
@@ -95,10 +142,12 @@ public class PacketPanelData implements IMessage {
         buf.writeInt(this.warnings);
         buf.writeInt(this.thirdPartyPatterns);
         buf.writeInt(this.ignoredPatterns);
+        buf.writeInt(this.healthyPatterns);
         buf.writeInt(this.rows.size());
         for (Row r : this.rows) {
             buf.writeBoolean(r.error);
             ByteBufUtils.writeUTF8String(buf, r.name);
+            ByteBufUtils.writeUTF8String(buf, r.kind);
             buf.writeBoolean(r.hasLoc);
             if (r.hasLoc) {
                 ByteBufUtils.writeUTF8String(buf, r.locKey);
@@ -114,6 +163,9 @@ public class PacketPanelData implements IMessage {
             buf.writeBoolean(r.canExtract);
             buf.writeBoolean(r.canIgnore);
             buf.writeBoolean(r.ignored);
+            buf.writeBoolean(r.healthy);
+            buf.writeInt(r.dim);
+            ByteBufUtils.writeUTF8String(buf, r.dimName);
         }
     }
 

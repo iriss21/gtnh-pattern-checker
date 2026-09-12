@@ -12,7 +12,7 @@ import cpw.mods.fml.relauncher.Side;
  */
 public final class PatternCheckerNetwork {
 
-    private static final String CHANNEL = "patternchecker";
+    private static final String CHANNEL = "gtnhpatternchecker";
     private static final int ID_HIGHLIGHT = 0;
     private static final int ID_PANEL_DATA = 1;
     private static final int ID_PANEL_ACTION = 2;

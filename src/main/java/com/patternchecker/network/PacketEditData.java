@@ -23,6 +23,9 @@ public class PacketEditData implements IMessage {
 
     public String name = "";
     public String targetDesc = "";
+    /** Dimension of the edited interface, plus the server's own name for it. */
+    public int dim;
+    public String dimName = "";
     public final java.util.List<EditEntry> inputs = new java.util.ArrayList<>();
     public final java.util.List<EditEntry> outputs = new java.util.ArrayList<>();
 
@@ -94,6 +97,8 @@ public class PacketEditData implements IMessage {
     public void fromBytes(ByteBuf buf) {
         this.name = ByteBufUtils.readUTF8String(buf);
         this.targetDesc = ByteBufUtils.readUTF8String(buf);
+        this.dim = buf.readInt();
+        this.dimName = ByteBufUtils.readUTF8String(buf);
         int in = buf.readInt();
         for (int i = 0; i < in; i++) {
             this.inputs.add(readEntry(buf));
@@ -108,6 +113,8 @@ public class PacketEditData implements IMessage {
     public void toBytes(ByteBuf buf) {
         ByteBufUtils.writeUTF8String(buf, this.name);
         ByteBufUtils.writeUTF8String(buf, this.targetDesc);
+        buf.writeInt(this.dim);
+        ByteBufUtils.writeUTF8String(buf, this.dimName);
         buf.writeInt(this.inputs.size());
         for (EditEntry e : this.inputs) {
             writeEntry(buf, e);

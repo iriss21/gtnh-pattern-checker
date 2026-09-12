@@ -18,4 +18,4 @@ plugins {
     id("com.gtnewhorizons.gtnhsettingsconvention") version("2.0.20")
 }
 
-rootProject.name = "PatternChecker"
+rootProject.name = "gtnh-pattern-checker"

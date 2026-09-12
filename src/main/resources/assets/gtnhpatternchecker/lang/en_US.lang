@@ -1,16 +1,14 @@
-item.patternchecker.pattern_checker_tool.name=Pattern Checker Tool
-item.patternchecker.pattern_checker_tool.tooltip=Right-click an ME network block to bind, right-click air to open the check panel, Shift+right-click to unbind.
-
+item.gtnhpatternchecker.pattern_checker_tool.name=Pattern Checker Tool
+item.gtnhpatternchecker.pattern_checker_tool.tooltip=Right-click an ME network block to bind, right-click air to open the check panel, Shift+right-click to unbind.
 patternchecker.bound.done=Bound to ME network @ %s
 patternchecker.bound.cleared=Binding cleared
 patternchecker.bound.notTool=Hold the Pattern Checker Tool first
 patternchecker.bound.status=Bound: %s
 patternchecker.bound.unavailable=The bound network is unavailable, right-click a network block to rebind
 patternchecker.bound.scanning=Scanning the bound ME network...
-
 patternchecker.msg.notarget=No ME network found. Look at or stand near a network block (controller, cable, interface), or use /patterncheck scan all.
 patternchecker.msg.fallback=No bound network, scanning the nearest ME network instead.
-patternchecker.msg.scanningAll=Scanning all loaded ME networks in this dimension...
+patternchecker.msg.scanningAll=Scanning ME networks in every loaded dimension...
 patternchecker.msg.none=No loaded ME networks found in this dimension.
 patternchecker.msg.noPatternsHint=Hint: patterns live in interface pattern slots or in ME storage (drives). No patterns were found on the scanned network(s).
 patternchecker.msg.header=ME network scan: %s patterns (interfaces %s / storage %s), %s errors, %s warnings
@@ -22,15 +20,12 @@ patternchecker.msg.noHighlightIndex=No highlight target with that index.
 patternchecker.msg.highlighted=Highlighted: %s (15s)
 patternchecker.msg.notNetworkBlock=That block is not part of an ME network.
 patternchecker.msg.help=Usage: /patterncheck scan [all] | bind <x> <y> <z> | unbind | highlight <n> | clear
-
 patternchecker.chat.error=[ERROR]
 patternchecker.chat.warning=[WARN]
 patternchecker.chat.highlight=[LOCATE]
 patternchecker.chat.highlight.hover=Click to highlight this pattern's position in the world
-
 patternchecker.location.provider=Interface pattern slot @ %s
 patternchecker.location.storage=ME storage
-
 patternchecker.msg.thirdParty=Note: %s third-party patterns (wildcard templates and similar) keep their own config and were not checked slot by slot.
 patternchecker.issue.blankPattern=Blank pattern (not encoded, unusable)
 patternchecker.issue.invalid=Pattern is invalid (marked unusable by AE2)
@@ -44,10 +39,9 @@ patternchecker.issue.processing.selfLoop=Single input equals single output with 
 patternchecker.issue.unregistered=Pattern is not registered in the network crafting cache (interface unpowered, inactive, or pattern dead)
 patternchecker.issue.input.missing=Inputs neither stocked nor craftable on the network: %s
 patternchecker.issue.duplicate=Found %s patterns with identical encoded inputs/outputs (ignorable if used for parallelism)
-
 patternchecker.gui.title=Pattern Check
 patternchecker.gui.scan=Scan
-patternchecker.gui.scanAll=Scan All
+patternchecker.gui.scanAll=Scan all dims
 patternchecker.gui.clear=Clear HL
 patternchecker.gui.highlight=Highlight
 patternchecker.gui.edit=Edit
@@ -67,7 +61,6 @@ patternchecker.edit.outputs=Outputs
 patternchecker.edit.total=Inputs total %s - Outputs total %s
 patternchecker.edit.upload=Encode and Upload
 patternchecker.edit.cancel=Cancel
-patternchecker.edit.needProcessing=Only processing patterns can be edited
 patternchecker.edit.hint=Left-click with item to set, empty-hand to clear, wheel = +-1 (Shift +-10), right-click same item adds one stack; the divider buttons act on every slot at once; drag items in from NEI or press R and click the recipe to fill
 patternchecker.edit.countTip=Amount: %s
 patternchecker.edit.overflow=Pattern slot count exceeds editor limits (%s)
@@ -83,6 +76,18 @@ patternchecker.gui.showIgnored=Show ignored (%s)
 patternchecker.gui.hideIgnored=Hide ignored (%s)
 patternchecker.gui.ignoredTag=[ignored]
 patternchecker.gui.allIgnored=All problem patterns are ignored (use "Show ignored" to review them)
+patternchecker.gui.showHealthy=Show healthy (%s)
+patternchecker.gui.hideHealthy=Hide healthy (%s)
+patternchecker.gui.allHealthy=All patterns are healthy (%s healthy patterns hidden; use "Show healthy" to see them)
 patternchecker.action.ignored=Pattern ignored: %s
 patternchecker.action.unignored=Pattern no longer ignored: %s
 patternchecker.msg.ignored=Note: %s report(s) from ignored patterns were skipped (see the panel to un-ignore).
+patternchecker.edit.notInInterface=This pattern lives in ME storage, not in an interface slot, so it cannot be edited in place - extract it first
+patternchecker.edit.craftingOneOutput=A crafting pattern can only have one output; keep exactly one output slot filled
+patternchecker.edit.invalidLayout=Invalid pattern layout (empty inputs or outputs), nothing was uploaded
+patternchecker.dim.0=Overworld
+patternchecker.dim.-1=Nether
+patternchecker.dim.1=The End
+patternchecker.pattern.crafting= (crafting)
+patternchecker.pattern.processing= (processing)
+patternchecker.issue.ok=No issue
